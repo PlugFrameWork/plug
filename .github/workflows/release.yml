@@ -1,0 +1,132 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: true
+          prerelease: false
+
+  build-windows:
+    name: Build & Upload Windows Release
+    runs-on: windows-latest
+    needs: create-release
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Set up MSVC & Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up CMake & Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Build Rust Static Library
+        working-directory: plug.app/rt
+        run: cargo build --release --lib
+
+      - name: Build WASM Plugins
+        run: |
+          mkdir release_pkg
+          mkdir release_pkg/plugins
+          rustc --target wasm32-unknown-unknown --crate-type cdylib plug.app/rt/src_plugins/pTerm/pTerm.rs -o release_pkg/plugins/pTerm.wasm -C opt-level=z -C lto=true
+          cp plug.app/rt/src_plugins/plugin.toml release_pkg/plugins/plugin.toml
+
+      - name: Run CMake Configuration
+        run: |
+          cmake -G Ninja -S plug.cross/windows -B plug.cross/windows/build -DRUST_LIB_PATH=../../plug.app/rt/target/release/tm_main.lib -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile plug executable
+        run: |
+          cmake --build plug.cross/windows/build
+
+      - name: Prepare Package
+        run: |
+          cp plug.cross/windows/build/plug.exe release_pkg/plug.exe
+          cp LICENSE release_pkg/LICENSE
+          cp README.md release_pkg/README.md
+          compress-archive -Path release_pkg/* -DestinationPath plug-windows-x64.zip
+
+      - name: Upload Windows Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./plug-windows-x64.zip
+          asset_name: plug-windows-x64.zip
+          asset_content_type: application/zip
+
+  build-linux:
+    name: Build & Upload Linux Release
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install GTK4 Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev pkg-config ninja-build libx11-dev
+
+      - name: Build Rust Static Library
+        working-directory: plug.app/rt
+        run: cargo build --release --lib
+
+      - name: Build WASM Plugins
+        run: |
+          mkdir -p release_pkg/plugins
+          rustc --target wasm32-unknown-unknown --crate-type cdylib plug.app/rt/src_plugins/pTerm/pTerm.rs -o release_pkg/plugins/pTerm.wasm -C opt-level=z -C lto=true
+          cp plug.app/rt/src_plugins/plugin.toml release_pkg/plugins/plugin.toml
+
+      - name: Run CMake Configuration
+        run: |
+          cmake -G Ninja -S plug.cross/linux -B plug.cross/linux/build -DRUST_LIB_PATH=../../plug.app/rt/target/release/libtm_main.a -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile plug executable
+        run: |
+          cmake --build plug.cross/linux/build
+
+      - name: Prepare Package
+        run: |
+          cp plug.cross/linux/build/plug release_pkg/plug
+          cp LICENSE release_pkg/LICENSE
+          cp README.md release_pkg/README.md
+          zip -r plug-linux-x64.zip release_pkg/*
+
+      - name: Upload Linux Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./plug-linux-x64.zip
+          asset_name: plug-linux-x64.zip
+          asset_content_type: application/zip
