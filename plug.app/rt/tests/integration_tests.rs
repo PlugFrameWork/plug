@@ -4,6 +4,10 @@ use tm_main::ops::proc::c_cleanup;
 use tm_main::ops::proc::c_is_running;
 use tm_main::ops::proc::c_parse;
 
+#[cfg(target_os = "linux")]
+#[no_mangle]
+pub extern "C" fn __rust_probestack() {}
+
 #[cfg(windows)]
 mod mocks {
     use std::os::raw::c_char;
