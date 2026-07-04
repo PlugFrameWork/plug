@@ -47,7 +47,7 @@ target_link_directories(plug PRIVATE
 )
 
 target_compile_options(plug PRIVATE -O3 -ffunction-sections -fdata-sections -flto)
-target_link_options(plug PRIVATE -Wl,--gc-sections -flto)
+target_link_options(plug PRIVATE -Wl,--gc-sections -flto -s)
 
 target_link_libraries(plug PRIVATE
     rust_core

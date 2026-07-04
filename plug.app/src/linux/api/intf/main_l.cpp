@@ -44,9 +44,9 @@ struct CmdItem { int tab; std::string cmd; };
 static std::queue<CmdItem> g_cmd_queue;
 static std::atomic_bool g_cmd_thread_running{false};
 thread_local int g_print_tab = -1;
-static int g_hover_close_tab = -1;
-static std::vector<HitBox> g_tab_close_boxes;
-static int g_char_w = 8;
+int g_hover_close_tab = -1;
+std::vector<HitBox> g_tab_close_boxes;
+int g_char_w = 8;
 static int g_tab_counter = 1;
 
 
@@ -618,6 +618,16 @@ const char* main_l_get_tab_owner(int tab_idx) {
         return ret.c_str();
     }
     return "";
+}
+
+void main_l_replace_last_line(const char* msg) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_tabs.empty()) return;
+    int target_tab = (g_print_tab != -1) ? g_print_tab : g_active_tab;
+    if (g_tabs[target_tab].raw_lines.empty()) return;
+    g_tabs[target_tab].raw_lines.back().text = msg ? msg : "";
+    g_tabs[target_tab].wrapped_lines.clear();
+    if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
 }
 
 void main_l_request_close(void) {

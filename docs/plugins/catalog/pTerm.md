@@ -1,15 +1,14 @@
-# System Plugins Catalog
+# pTerm (Terminal Interface)
 
-This document lists the official plugins built into the **plug** ecosystem and describes their runtime execution mechanics.
+`pTerm` is the default official shell runner plugin. It bridges the WebAssembly container to host shell processors.
 
 ---
 
-## 1. `pTerm` (Terminal Interface Plugin)
-
-`pTerm` is the default official shell runner plugin. It bridges the sandboxed WebAssembly container to host shell processors.
+## 1. Specifications
 
 - **Role**: Spawns and manages CMD and PowerShell sessions inside dedicated UI tabs.
 - **Required Permissions**: `host_exec`, `main_w_add_tab`, `host_set_tab_owner`, `host_get_tab_label`.
+- **Trust Tier**: Recognized as a trusted core utility by matching the compile-time hardcoded SHA-256 hash list. Bypasses the sandbox interpreter bans (shells block) and canonical-path allowlist checks.
 
 ---
 
@@ -31,10 +30,10 @@ The diagram below illustrates the exact control flow when a user runs a shell co
   1. Calls `get_args` to retrieve input ("dir")
   2. Resolves active tab mode (PowerShell vs CMD)
   3. Prepend shell execution wrapper (e.g. `cmd /c dir` or `powershell -Command "dir"`)
-  4. Calls host import `host_exec`
      |
      v
-[Rust Host Runtime] -> Validates "host_exec" permission in manifest
+[Rust Host Runtime] -> 1. Verifies memory buffer SHA-256 matches compile-time TRUSTED_PLUGIN_HASHES
+                       2. Sets is_trusted = true, bypassing standard execution sandbox restrictions
      |
      v
 [Host OS Subprocess] -> Spawns native shell, pipes output back to C++ UI

@@ -44,17 +44,13 @@ def get_msvc_env(vcvars_path):
 
 def generate_rc():
     print("\n=== Generating Resource Files ===")
-    manifest_raw = CROSS_DIR / "plug.manifest"
     rc_file = CROSS_DIR / "plug_manifest.rc"
     
-    icon_path = ROOT_DIR / "plug.res" / "ast" / "ico" / "i-1.ico"
-    icon_path_str = str(icon_path).replace("\\", "/")
-    manifest_str = str(manifest_raw).replace("\\", "/")
-    
     with open(rc_file, "w", encoding="utf-8") as f:
-        f.write(f'MAINICON ICON "{icon_path_str}"\n')
-        f.write(f'1 24 "{manifest_str}"\n')
+        f.write('MAINICON ICON "../../plug.res/ast/ico/i-1.ico"\n')
+        f.write('1 24 "plug.manifest"\n')
     print("[SUCCESS] Created plug_manifest.rc")
+
 
 def build_rust_plugins(tools, env):
     print("\n=== Building WASM Plugins ===")
@@ -64,7 +60,7 @@ def build_rust_plugins(tools, env):
     rustc_exe = tools.get("rustc", "rustc")
     import hashlib
     
-    for f in src_plugins_dir.glob("*.rs"):
+    for f in src_plugins_dir.rglob("*.rs"):
         if f.stem.startswith("."):
             continue
         
@@ -72,6 +68,8 @@ def build_rust_plugins(tools, env):
         hash_val = hashlib.md5(name.encode()).hexdigest()[:8]
         
         plugin_out_dir = PLUGINS_DIR / name
+        if plugin_out_dir.exists() and not plugin_out_dir.is_dir():
+            plugin_out_dir.unlink()
         plugin_out_dir.mkdir(exist_ok=True)
         
         out_wasm = plugin_out_dir / f"{name}.{hash_val}"
@@ -91,14 +89,34 @@ def build_rust_plugins(tools, env):
         with open(out_hash, "w", encoding="utf-8") as hf:
             hf.write(hash_val)
 
+        # Compute SHA-256 for hardcoded trust injection
+        if name == "pTerm":
+            with open(out_wasm, "rb") as wf:
+                wasm_bytes = wf.read()
+            pterm_sha = hashlib.sha256(wasm_bytes).hexdigest()
+            hash_file_path = RUST_DIR / "pterm_hash.txt"
+            with open(hash_file_path, "w", encoding="utf-8") as hf:
+                hf.write(pterm_sha)
+            print(f"[WASM] Updated pTerm hardcoded trust hash: {pterm_sha}")
+
     src_toml = src_plugins_dir / "plugin.toml"
     dst_toml = PLUGINS_DIR / "plugin.toml"
     if src_toml.exists():
         shutil.copy2(src_toml, dst_toml)
         print("[SUCCESS] Copied plugin.toml")
 
-def build_rust_core(target, tools, env):
+def build_rust_core(target, tools, env, start_time):
     print(f"\n=== Building Rust Core ({target}) ===")
+    
+    hash_file = RUST_DIR / "pterm_hash.txt"
+    if not hash_file.exists():
+        print("[ERROR] pterm_hash.txt not found. Build WASM plugins first to generate the trust hash.")
+        sys.exit(1)
+        
+    if hash_file.stat().st_mtime < start_time - 2:
+        print("[ERROR] pterm_hash.txt is stale (not rebuilt in this run). Force rebuilding plugins first.")
+        sys.exit(1)
+
     cargo_exe = tools.get("cargo", "cargo")
     cmd = [cargo_exe, "build", "--lib", "--release", "--target", target]
     run_cmd(cmd, cwd=RUST_DIR, env=env)
@@ -113,8 +131,11 @@ def build_rust_core(target, tools, env):
     print(f"[ERROR] Rust library not found in {lib_dir}")
     sys.exit(1)
 
-def run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env):
+def run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env, headless_test=False):
     print(f"\n=== Running CMake with {tc_name.upper()} ===")
+    if CMAKE_BUILD_DIR.exists():
+        import shutil
+        shutil.rmtree(CMAKE_BUILD_DIR, ignore_errors=True)
     CMAKE_BUILD_DIR.mkdir(exist_ok=True)
     
     cmake_exe = tools.get("cmake", "cmake")
@@ -140,6 +161,11 @@ def run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env):
     if build_opts.get("hide_console", True):
         cmd.append("-DHIDE_CONSOLE=ON")
         
+    if headless_test:
+        cmd.append("-DPLUG_ENABLE_HEADLESS_MODE=ON")
+    else:
+        cmd.append("-DPLUG_ENABLE_HEADLESS_MODE=OFF")
+        
     cmd.append(str(CROSS_DIR))
     run_cmd(cmd, cwd=CMAKE_BUILD_DIR, env=env)
     
@@ -147,7 +173,16 @@ def run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env):
     run_cmd([cmake_exe, "--build", "."], cwd=CMAKE_BUILD_DIR, env=env)
 
 def main():
+    import time
+    start_time = time.time()
     config = load_config()
+    
+    # Parse headless test parameter
+    headless_test_build = False
+    if "--headless-test" in sys.argv:
+        headless_test_build = True
+        sys.argv.remove("--headless-test")
+        
     tc_name = sys.argv[1] if len(sys.argv) > 1 else config.get("active_toolchain", "clang-x64")
     
     if tc_name not in config["toolchains"]:
@@ -177,19 +212,38 @@ def main():
     
     rust_target = tc_config.get("rust_target", "x86_64-pc-windows-gnu")
     run_cmd(["rustup", "target", "add", rust_target], check=False, env=env)
-    rust_lib_path = build_rust_core(rust_target, tools, env)
+    rust_lib_path = build_rust_core(rust_target, tools, env, start_time)
     
     generate_rc()
     
-    run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env)
+    run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env, headless_test=headless_test_build)
     
-    exe_path = CMAKE_BUILD_DIR / "plug.exe"
+    exe_name = "plug.exe"
+    exe_path = CMAKE_BUILD_DIR / exe_name
     if not exe_path.exists():
         print(f"[ERROR] Output executable not found at {exe_path}")
         sys.exit(1)
-        
-    dest_exe = RELEASE_DIR / "plug.exe"
+
+    # Dynamic output name: plug-{arch}.exe or plug-test-{arch}.exe
+    if headless_test_build:
+        dest_name = f"plug-test-{arch}.exe"
+    else:
+        dest_name = f"plug-{arch}.exe"
+
+    dest_exe = RELEASE_DIR / dest_name
+
+    # Warn if overwriting a binary previously written by a different toolchain.
+    # A sidecar .toolchain file records which toolchain last wrote this slot.
+    toolchain_marker = dest_exe.with_suffix(".toolchain")
+    if dest_exe.exists() and toolchain_marker.exists():
+        prev_tc = toolchain_marker.read_text(encoding="utf-8").strip()
+        if prev_tc != tc_name:
+            print(f"[BUILD] Writing {dest_name} (toolchain: {tc_name}, overwriting previous {prev_tc} build)")
+    else:
+        print(f"[BUILD] Writing {dest_name} (toolchain: {tc_name})")
+
     shutil.copy2(exe_path, dest_exe)
+    toolchain_marker.write_text(tc_name, encoding="utf-8")
     print(f"\n[SUCCESS] Copied to {dest_exe}")
     
     upx_exe = tools.get("upx", "")

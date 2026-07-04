@@ -21,13 +21,56 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const HOST_API_VERSION: &str = "0.1.0a";
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct AllowedCommand {
+    pub path: String,
+    pub args_pattern: String,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct Manifest {
     pub name: String,
     pub version: String,
     pub author: String,
     pub api_version: String,
     pub permissions: Vec<String>,
+    pub allowed_commands: Option<Vec<AllowedCommand>>,
 }
+
+fn resolve_binary_path(exe: &str) -> Option<PathBuf> {
+    let path = Path::new(exe);
+    if path.is_absolute() {
+        return fs::canonicalize(path).ok();
+    }
+    
+    if let Ok(cur) = std::env::current_dir() {
+        let p = cur.join(exe);
+        if p.exists() {
+            return fs::canonicalize(p).ok();
+        }
+    }
+    
+    if let Ok(paths) = std::env::var("PATH") {
+        for p in std::env::split_paths(&paths) {
+            let bin_path = p.join(exe);
+            if bin_path.exists() {
+                return fs::canonicalize(bin_path).ok();
+            }
+            if cfg!(windows) {
+                for ext in &[".exe", ".bat", ".cmd", ".com"] {
+                    let bin_path_ext = p.join(format!("{}{}", exe, ext));
+                    if bin_path_ext.exists() {
+                        return fs::canonicalize(bin_path_ext).ok();
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+static TRUSTED_PLUGIN_HASHES: &[&str] = &[
+    include_str!("../../pterm_hash.txt")
+];
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct PluginManifest {
@@ -43,6 +86,7 @@ pub struct Plugin {
     pub name: String,
     pub hash: String,
     pub manifest: Manifest,
+    pub is_trusted: bool,
     store: Store,
     instance: Instance,
 }
@@ -50,6 +94,8 @@ pub struct Plugin {
 struct Env {
     memory: Option<Memory>,
     permissions: Vec<String>,
+    allowed_commands: Vec<AllowedCommand>,
+    is_trusted: bool,
 }
 
 static PLUGINS: Lazy<Mutex<Vec<Plugin>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -113,22 +159,6 @@ pub fn init_plugins(plugins_dir: &str) {
         return;
     }
 
-    let unified_manifest_path = path.join("plugin.toml");
-    let mut manifest_map = std::collections::HashMap::new();
-    if unified_manifest_path.exists() {
-        if let Ok(content) = fs::read_to_string(&unified_manifest_path) {
-            if let Ok(p_manifest) = toml::from_str::<PluginManifest>(&content) {
-                for m in p_manifest.plugin {
-                    manifest_map.insert(m.name.clone(), m);
-                }
-            } else {
-                print_error(&format!("[SECURITY] Failed to parse unified manifest: {}", unified_manifest_path.display()));
-            }
-        }
-    } else {
-         print_error(&format!("[SECURITY] Missing unified manifest: {}", unified_manifest_path.display()));
-    }
-
     let mut plug_files = Vec::new();
 
     fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) {
@@ -144,6 +174,60 @@ pub fn init_plugins(plugins_dir: &str) {
         }
     }
     walk_dir(path, &mut plug_files);
+
+    let dest_root = path.parent().unwrap_or(path);
+    let marker_path = dest_root.join(".integrity_migration_v1_done");
+
+    // Phase 1.5: One-Time Global Migration Check
+    if !marker_path.exists() {
+        print_info("[SECURITY-WARNING] Global integrity migration started. Backfilling plugin .integrity files...");
+        for p in &plug_files {
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                let name = stem.split('.').next().unwrap_or(stem);
+                let mut integrity_path = p.parent().unwrap().to_path_buf();
+                integrity_path.push(format!("{}.integrity", name));
+                if !integrity_path.exists() {
+                    let hash_val = fs::read_to_string(p).unwrap_or_default().trim().to_string();
+                    if !hash_val.is_empty() {
+                        let wasm_path = p.with_extension(&hash_val);
+                        if wasm_path.exists() {
+                            if let Ok(bytes) = fs::read(&wasm_path) {
+                                let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&bytes);
+                                if let Err(e) = crate::ops::utils::write_atomic(&integrity_path, sha256_hex.as_bytes()) {
+                                    print_error(&format!("Migration failed to write integrity file for {}: {}", name, e));
+                                } else {
+                                    print_info(&format!("[SECURITY-WARNING] Generated integrity file for pre-existing plugin: {}", name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Write marker atomically
+        if let Err(e) = crate::ops::utils::write_atomic(&marker_path, b"v1_done") {
+            print_error(&format!("Failed to write global migration marker: {}", e));
+        } else {
+            print_info("[SECURITY] Global integrity migration complete. Marker written.");
+        }
+    }
+
+    let unified_manifest_path = path.join("plugin.toml");
+    let mut manifest_map = std::collections::HashMap::new();
+    if unified_manifest_path.exists() {
+        if let Ok(content) = fs::read_to_string(&unified_manifest_path) {
+            if let Ok(p_manifest) = toml::from_str::<PluginManifest>(&content) {
+                for m in p_manifest.plugin {
+                    manifest_map.insert(m.name.clone(), m);
+                }
+            } else {
+                print_error(&format!("[SECURITY] Failed to parse unified manifest: {}", unified_manifest_path.display()));
+            }
+        }
+    } else {
+         print_error(&format!("[SECURITY] Missing unified manifest: {}", unified_manifest_path.display()));
+    }
 
     for p in plug_files {
         let stem_opt = p.file_stem().and_then(|s| s.to_str());
@@ -178,17 +262,62 @@ pub fn init_plugins(plugins_dir: &str) {
 
 fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), Box<dyn std::error::Error>> {
     let wasm_bytes = fs::read(wasm_path)?;
+    let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&wasm_bytes);
+
+    let mut is_trusted = false;
+    if TRUSTED_PLUGIN_HASHES.contains(&sha256_hex.as_str()) {
+        is_trusted = true;
+    }
+
+    if !is_trusted {
+        let stem_opt = wasm_path.file_stem().and_then(|s| s.to_str());
+        let name = if let Some(stem) = stem_opt {
+            stem.split('.').next().unwrap_or(stem)
+        } else {
+            manifest.name.as_str()
+        };
+        let integrity_path = wasm_path.parent().unwrap().join(format!("{}.integrity", name));
+        if !integrity_path.exists() {
+            return Err(format!("[SECURITY] Missing integrity sidecar for {}", name).into());
+        }
+        let expected_hash = fs::read_to_string(&integrity_path)?.trim().to_string();
+        if expected_hash != sha256_hex {
+            return Err(format!("[SECURITY] Integrity mismatch for {}", name).into());
+        }
+    }
 
     if !manifest.api_version.starts_with("0.1") {
         return Err(format!("Incompatible API version: {} (Host: {})", manifest.api_version, HOST_API_VERSION).into());
     }
 
     let mut store = Store::new(Cranelift::default());
-    let module = Module::new(&store, wasm_bytes)?;
+    let module = Module::new(&store, &wasm_bytes)?;
+
+    // Verify imported functions against manifest permission declarations
+    for import in module.imports() {
+        if import.module() == "env" {
+            let name = import.name();
+            // print_info, print_error, get_args, get_env are always allowed
+            if name == "host_exec" && !manifest.permissions.iter().any(|p| p == "host_exec") {
+                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+            }
+            if name == "main_w_add_tab" && !manifest.permissions.iter().any(|p| p == "main_w_add_tab") {
+                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+            }
+            if name == "host_set_tab_owner" && !manifest.permissions.iter().any(|p| p == "host_set_tab_owner") {
+                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+            }
+            if name == "host_get_tab_label" && !manifest.permissions.iter().any(|p| p == "host_get_tab_label") {
+                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+            }
+        }
+    }
 
     let env = FunctionEnv::new(&mut store, Env { 
         memory: None, 
-        permissions: manifest.permissions.clone() 
+        permissions: manifest.permissions.clone(),
+        allowed_commands: manifest.allowed_commands.clone().unwrap_or_default(),
+        is_trusted,
     });
 
     let import_object = imports! {
@@ -246,6 +375,9 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                     if view.read(ptr as u64, &mut buf).is_ok() {
                         let full_cmd_line = std::str::from_utf8(&buf).unwrap_or("").trim();
                         if full_cmd_line.is_empty() { return; }
+                        
+
+
                         let tab_idx = get_current_print_tab();
                         
                         if full_cmd_line.to_lowercase().starts_with("cd ") || full_cmd_line.to_lowercase() == "cd" {
@@ -277,13 +409,89 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                         let mut parsed_args = parse_args(full_cmd_line);
                         if parsed_args.is_empty() { return; }
                         let exe = parsed_args.remove(0);
+
+                        let canonical_exe = if env_data.is_trusted {
+                            resolve_binary_path(&exe).unwrap_or_else(|| std::path::PathBuf::from(&exe))
+                        } else {
+                            // B1. Resolve absolute canonical path
+                            match resolve_binary_path(&exe) {
+                                Some(p) => p,
+                                None => {
+                                    print_error(&format!("[SECURITY] Blocked execution: binary not found: {}", exe));
+                                    return;
+                                }
+                            }
+                        };
+
+                        if !env_data.is_trusted {
+                            // B2. Interpreter Ban Check
+                            if let Some(file_name) = canonical_exe.file_name().and_then(|f| f.to_str()) {
+                                let f_lc = file_name.to_lowercase();
+                                // Interpreters and LOLBins that can execute arbitrary code
+                                // NOTE: This list covers common cases but is NOT exhaustive.
+                                // See docs/SECURITY.md for known limitations.
+                                let banned = [
+                                    // Shells
+                                    "cmd.exe", "cmd",
+                                    "powershell.exe", "powershell",
+                                    "pwsh.exe", "pwsh",
+                                    "bash", "sh", "zsh", "fish",
+                                    // Script interpreters
+                                    "python.exe", "python", "python3", "python3.exe",
+                                    "perl", "perl.exe",
+                                    "ruby", "ruby.exe",
+                                    "node", "node.exe",
+                                    "wscript.exe", "wscript",
+                                    "cscript.exe", "cscript",
+                                    "mshta.exe", "mshta",
+                                    // Code execution LOLBins
+                                    "rundll32.exe", "rundll32",
+                                    "regsvr32.exe", "regsvr32",
+                                    "msbuild.exe", "msbuild",
+                                    "installutil.exe", "installutil",
+                                ];
+                                if banned.contains(&f_lc.as_str()) {
+                                    // TEST COUPLING: this message is asserted in tests/integration/test_sandbox_rules.py
+                                    // (has_banned_block check). Rename here → must update assertion string there.
+                                    print_error(&format!("[SECURITY] Blocked execution of banned binary: {}", file_name));
+                                    return;
+                                }
+                            }
+                            
+                            // B3. Allowlist & Regex Check
+                            let mut allowed = false;
+                            let args_string = parsed_args.join(" ");
+                            for entry in &env_data.allowed_commands {
+                                if let Ok(entry_canonical) = fs::canonicalize(&entry.path) {
+                                    if entry_canonical == canonical_exe {
+                                        if let Ok(re) = regex::Regex::new(&entry.args_pattern) {
+                                            if re.is_match(&args_string) {
+                                                allowed = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Replaced naive blacklist (rm/del/format substring match) with
+                            // canonical-path allowlist + argv-based exec (no shell interpretation).
+                            // See docs/SECURITY.md for threat model and rationale.
+                            if !allowed {
+                                // TEST COUPLING: this message is asserted in tests/integration/test_sandbox_rules.py
+                                // (has_unauth_block check). Rename here → must update assertion string there.
+                                print_error(&format!("[SECURITY] Blocked execution of unauthorized binary: {}", canonical_exe.display()));
+                                return;
+                            }
+                        }
+
                         let sub_cwd = {
                             let cwds = TAB_CWDS.lock().unwrap();
                             cwds.get(&tab_idx).cloned().unwrap_or_else(|| {
                                 std::env::current_dir().unwrap_or_default().to_string_lossy().to_string()
                             })
                         };
-                        let mut cmd = Command::new(&exe);
+                        let mut cmd = Command::new(&canonical_exe);
                         cmd.args(&parsed_args)
                            .current_dir(sub_cwd)
                            .stdout(Stdio::piped())
@@ -530,6 +738,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
         name: manifest.name.clone(),
         hash: hash.to_string(),
         manifest: manifest.clone(),
+        is_trusted,
         store,
         instance,
     });

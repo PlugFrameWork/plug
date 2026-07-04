@@ -119,6 +119,42 @@ static bool g_content_scroll_thumb_visible = false;
 static bool g_drag_content_scrollbar = false;
 static int g_drag_content_grab_dy = 0;
 
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+#include <iostream>
+#include <sstream>
+
+extern "C" bool g_headless_mode;
+static std::thread g_headless_stdin_thread;
+
+static void headless_stdin_worker(void) {
+    std::string line;
+    // Read input from stdin line by line
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) continue;
+        
+        // Check for test state dump request (magic command string)
+        if (line == "__dump_state__") {
+            PostMessageW(g_hwnd, WM_APP + 200, 0, 0);
+            continue;
+        }
+        
+        // Convert the UTF-8 input line to UTF-16
+        int n = MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, NULL, 0);
+        if (n > 0) {
+            std::vector<wchar_t> wline(n);
+            MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, wline.data(), n);
+            
+            // Post WM_CHAR character messages to simulate key presses
+            for (size_t i = 0; i < wline.size() - 1; ++i) {
+                PostMessageW(g_hwnd, WM_CHAR, wline[i], 0);
+            }
+            // Conclude with Enter key press
+            PostMessageW(g_hwnd, WM_CHAR, L'\r', 0);
+        }
+    }
+}
+#endif
+
 static void command_worker_thread(void) {
     while (g_cmd_thread_running.load()) {
         CmdItem it = {-1, std::string()};
@@ -560,6 +596,41 @@ static void render(HDC hdc) {
 
 static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    case WM_APP + 200: { // WM_APP_DUMP_STATE
+        std::lock_guard<std::mutex> lk(g_mutex);
+        std::cout << "\n---STATE_DUMP_START---\n";
+        std::cout << "{\n";
+        std::cout << "  \"active_tab\": " << g_active_tab << ",\n";
+        std::cout << "  \"tabs\": [\n";
+        for (size_t i = 0; i < g_tabs.size(); ++i) {
+            std::wstring wtitle = g_tabs[i].title;
+            int n1 = WideCharToMultiByte(CP_UTF8, 0, wtitle.c_str(), -1, NULL, 0, NULL, NULL);
+            std::string title_utf8;
+            if (n1 > 0) {
+                title_utf8.resize(n1 - 1);
+                WideCharToMultiByte(CP_UTF8, 0, wtitle.c_str(), -1, &title_utf8[0], n1, NULL, NULL);
+            }
+            std::string raw_input = g_tabs[i].input_buffer;
+            std::string escaped_input;
+            for (char c : raw_input) {
+                if (c == '\\') escaped_input += "\\\\";
+                else if (c == '"') escaped_input += "\\\"";
+                else escaped_input += c;
+            }
+            std::cout << "    {\n";
+            std::cout << "      \"index\": " << i << ",\n";
+            std::cout << "      \"title\": \"" << title_utf8 << "\",\n";
+            std::cout << "      \"input_buffer\": \"" << escaped_input << "\",\n";
+            std::cout << "      \"plugin_owner\": \"" << (g_tabs[i].plugin_owner.empty() ? "" : g_tabs[i].plugin_owner) << "\"\n";
+            std::cout << "    }" << (i + 1 < g_tabs.size() ? "," : "") << "\n";
+        }
+        std::cout << "  ]\n";
+        std::cout << "}\n";
+        std::cout << "---STATE_DUMP_END---\n" << std::endl;
+        return 0;
+    }
+#endif
     case WM_APP + 100: {
         std::lock_guard<std::mutex> lk(g_mutex);
         TabState t;
@@ -1140,9 +1211,26 @@ extern "C" int main_w_init(void) {
     int center_x = (screen_width - window_width) / 2;
     int center_y = (screen_height - window_height) / 2;
     
-    g_hwnd = CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"plug", WS_POPUP | WS_VISIBLE, center_x, center_y, window_width, window_height, NULL, NULL, hInst, NULL);
+    DWORD style = WS_POPUP | WS_VISIBLE;
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        style = WS_POPUP;
+    }
+#endif
+
+    g_hwnd = CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"plug", style, center_x, center_y, window_width, window_height, NULL, NULL, hInst, NULL);
     if (!g_hwnd) return -1;
+
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        ShowWindow(g_hwnd, SW_HIDE);
+    } else {
+        ShowWindow(g_hwnd, SW_SHOW);
+    }
+#else
     ShowWindow(g_hwnd, SW_SHOW);
+#endif
+
     UpdateWindow(g_hwnd);
 
     HRGN r = CreateRoundRectRgn(0,0,window_width+1,window_height+1,16,16);
@@ -1161,6 +1249,13 @@ extern "C" int main_w_init(void) {
 
     g_cmd_thread_running = true;
     g_cmd_thread = std::thread(command_worker_thread);
+
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        g_headless_stdin_thread = std::thread(headless_stdin_worker);
+    }
+#endif
+
     g_last_scroll_activity = std::chrono::steady_clock::now();
     return 0;
 }
@@ -1173,6 +1268,12 @@ extern "C" void main_w_cleanup(void) {
     g_cmd_thread_running = false;
     g_cmd_cv.notify_all();
     if (g_cmd_thread.joinable()) g_cmd_thread.join();
+
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_stdin_thread.joinable()) {
+        g_headless_stdin_thread.detach();
+    }
+#endif
 }
 
 extern "C" void main_w_run_message_loop(void) {
@@ -1201,6 +1302,11 @@ extern "C" void main_w_print_banner(void) {
 
 extern "C" void main_w_print_error(const char* msg) {
     if (!msg) return;
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        std::cerr << "[ERROR] " << msg << std::endl;
+    }
+#endif
     size_t l = strlen(msg) + 1;
     char* dup = (char*)malloc(l);
     if (dup) {
@@ -1211,6 +1317,11 @@ extern "C" void main_w_print_error(const char* msg) {
 
 extern "C" void main_w_print_success(const char* msg) {
     if (!msg) return;
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        std::cout << "[SUCCESS] " << msg << std::endl;
+    }
+#endif
     size_t l = strlen(msg) + 1;
     char* dup = (char*)malloc(l);
     if (dup) {
@@ -1221,6 +1332,11 @@ extern "C" void main_w_print_success(const char* msg) {
 
 extern "C" void main_w_print_info(const char* msg) {
     if (!msg) return;
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        std::cout << "[INFO] " << msg << std::endl;
+    }
+#endif
     size_t l = strlen(msg) + 1;
     char* dup = (char*)malloc(l);
     if (dup) {
@@ -1231,6 +1347,11 @@ extern "C" void main_w_print_info(const char* msg) {
 
 extern "C" void main_w_print_warning(const char* msg) {
     if (!msg) return;
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    if (g_headless_mode) {
+        std::cout << "[WARNING] " << msg << std::endl;
+    }
+#endif
     size_t l = strlen(msg) + 1;
     char* dup = (char*)malloc(l);
     if (dup) {
@@ -1266,6 +1387,13 @@ extern "C" void main_w_replace_last_line_internal(const char* msg) {
         InvalidateRect(g_hwnd, NULL, FALSE);
     }
 }
+
+extern "C" void main_w_replace_last_line_safe(const char* msg);
+
+extern "C" void main_w_replace_last_line(const char* msg) {
+    main_w_replace_last_line_safe(msg);
+}
+
 
 
 extern "C" void main_w_add_tab(const char* owner) {

@@ -45,6 +45,13 @@ else()
     add_executable(plug ${SOURCES})
 endif()
 
+target_compile_definitions(plug PRIVATE NOMINMAX)
+
+option(PLUG_ENABLE_HEADLESS_MODE "Enable headless mode for E2E testing" OFF)
+if(PLUG_ENABLE_HEADLESS_MODE)
+    target_compile_definitions(plug PRIVATE PLUG_ENABLE_HEADLESS_MODE)
+endif()
+
 target_include_directories(plug PRIVATE
     "${APP_DIR}/inc"
     "${COMMON_DIR}/inc"
@@ -52,20 +59,40 @@ target_include_directories(plug PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(plug PRIVATE /O2 /Gw /Gy /MT /wd4068)
-    target_link_options(plug PRIVATE /OPT:REF /OPT:ICF /LTCG)
-    
+    # Use CMake's policy to set runtime library consistently (/MT for static linkage).
+    # This avoids the D9025 "overriding '/MD' with '/MT'" warning that occurs when
+    # manually passing /MT via target_compile_options while CMAKE_BUILD_TYPE=Release
+    # injects /MD through CMAKE_CXX_FLAGS_RELEASE.
+    set_property(TARGET plug PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
+    target_compile_options(plug PRIVATE
+        /O2       # Maximize speed
+        /Gw       # Global data optimization
+        /Gy       # Enable function-level linking
+        /GL       # Whole-program optimization (required for /LTCG to be meaningful)
+        /wd4068   # Suppress unknown pragma warnings
+    )
+    target_link_options(plug PRIVATE
+        /OPT:REF        # Remove unreferenced functions/data
+        /OPT:ICF        # Identical COMDAT folding
+        /LTCG           # Link-time code generation (requires /GL above)
+        /MANIFEST:NO    # Suppress linker manifest embedding; RC file already embeds
+                        # "1 24 plug.manifest". Without this, linker also tries to embed
+                        # with ID=1 → CVT1100 duplicate resource → LNK1123.
+    )
+    if(HIDE_CONSOLE)
+        target_link_options(plug PRIVATE "/ENTRY:mainCRTStartup")
+    endif()
+
     target_link_libraries(plug PRIVATE
         rust_core
         kernel32 user32 gdi32 advapi32 crypt32 shell32 ole32 oleaut32 uuid
         psapi shlwapi ws2_32 userenv ntdll iphlpapi bcrypt secur32 dbghelp
         comctl32 urlmon wininet msimg32
-        bcrypt userenv ws2_32
-        ntdll
     )
 else()
     target_compile_options(plug PRIVATE -Os -ffunction-sections -fdata-sections -flto)
-    target_link_options(plug PRIVATE -static -static-libgcc -static-libstdc++ -Wl,--gc-sections -flto)
+    target_link_options(plug PRIVATE -static -static-libgcc -static-libstdc++ -Wl,--gc-sections -flto -s)
     
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         target_link_options(plug PRIVATE -fuse-ld=lld)
@@ -80,3 +107,32 @@ else()
         ntdll
     )
 endif()
+
+option(COMPILE_RUST_CORE "Automatically compile the Rust library core inside the build" ON)
+
+if(COMPILE_RUST_CORE)
+    find_program(CARGO_EXECUTABLE cargo)
+    if(NOT CARGO_EXECUTABLE)
+        message(FATAL_ERROR "cargo executable not found! Install Rust or disable COMPILE_RUST_CORE.")
+    endif()
+
+    if(MSVC)
+        set(CARGO_TARGET "x86_64-pc-windows-msvc")
+    else()
+        set(CARGO_TARGET "x86_64-pc-windows-gnu")
+    endif()
+
+    add_custom_command(
+        OUTPUT "${RUST_LIB_PATH}"
+        COMMAND "${CARGO_EXECUTABLE}" build --release --lib --target "${CARGO_TARGET}"
+        WORKING_DIRECTORY "${APP_DIR}/rt"
+        DEPENDS 
+            "${APP_DIR}/rt/Cargo.toml" 
+            "${APP_DIR}/rt/handlers/lib.rs"
+        COMMENT "Compiling Rust library core (${CARGO_TARGET})..."
+    )
+    
+    add_custom_target(cargo_build DEPENDS "${RUST_LIB_PATH}")
+    add_dependencies(plug cargo_build)
+endif()
+

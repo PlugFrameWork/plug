@@ -94,6 +94,15 @@ void admin_cleanup(void) {
 }
 
 BOOL admin_check_privileges(void) {
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    {
+        const char* headless = getenv("PLUG_HEADLESS");
+        if (headless && strcmp(headless, "1") == 0) {
+            return TRUE;
+        }
+    }
+#endif
+
 #ifdef _WIN32
     BOOL isAdmin = FALSE;
     SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;

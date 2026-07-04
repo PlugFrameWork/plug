@@ -19,6 +19,36 @@ pub fn rand_hash(seed: &str) -> String {
     format!("{:06x}", hasher.finish() & 0xFFFFFF)
 }
 
+pub fn calculate_buffer_sha256(bytes: &[u8]) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+pub fn write_atomic(path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error> {
+    use std::fs;
+    use std::io::Write;
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "No parent directory")
+    })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "No file name")
+    })?;
+    let mut tmp_name = file_name.to_os_string();
+    tmp_name.push(".tmp");
+    let tmp_path = parent.join(tmp_name);
+
+    {
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(content)?;
+        file.sync_all()?;
+    }
+    fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

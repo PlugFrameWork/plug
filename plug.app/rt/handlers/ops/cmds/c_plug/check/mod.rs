@@ -10,6 +10,8 @@ pub struct CloudPlugin {
     pub author: String,
     pub description: String,
     pub official: bool,
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -61,11 +63,13 @@ pub fn c_check(_args: *const i8) -> i32 {
     print_info("\n--- PLUGIN REGISTRY ---");
     print_info("Connecting to official repository...");
 
-    let registry_url = "https://raw.githubusercontent.com/PlugFrameWork/plug/plug/trunk/pluglists.json";
+    let registry_url = std::env::var("PLUG_REGISTRY_URL").unwrap_or_else(|_| {
+        "https://raw.githubusercontent.com/PlugFrameWork/plug/trunk/pluglists.json".to_string()
+    });
     let temp_dir = env::temp_dir();
     let temp_file = temp_dir.join("pluglists.json");
     let temp_path = temp_file.to_str().unwrap();
-    let last_hr = download_file_hr(registry_url, temp_path);
+    let last_hr = download_file_hr(&registry_url, temp_path);
     let ok = last_hr == 0;
     if !ok {
         print_info(&format!(
@@ -84,7 +88,7 @@ pub fn c_check(_args: *const i8) -> i32 {
                     let loaded_info = crate::ops::plugin_mgr::get_loaded_plugins_info();
                     for p in repo.plugins {
                         let hash = crate::ops::utils::rand_hash(&p.name);
-                        session.insert(hash.clone(), p.name.clone());
+                        session.insert(hash.clone(), (p.name.clone(), p.sha256.clone().unwrap_or_default()));
                         let off_tag = if p.official { "[Official]" } else { "" };
                         let mut status_tag = String::new();
                         if let Some((_, _, local_ver)) = loaded_info.iter().find(|(n, _, _)| *n == p.name) {
@@ -115,4 +119,54 @@ pub fn c_check(_args: *const i8) -> i32 {
         print_info(&format!("Network Error: Could not fetch plugin list from Github. Last HRESULT=0x{:08X}", last_hr as u32));
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_registry_with_sha256() {
+        let json_data = r#"{
+            "repo_version": "1.0.0",
+            "plugins": [
+                {
+                    "name": "pTerm",
+                    "author": "plug",
+                    "version": "1.0.0",
+                    "description": "Terminal environment",
+                    "official": true,
+                    "sha256": "0c36f35332eada4fd8dd6e5d3e6678bf637d3be6176d6ef638bffbe4a643e044"
+                }
+            ]
+        }"#;
+
+        let parsed: Result<CloudRepo, _> = serde_json::from_str(json_data);
+        assert!(parsed.is_ok(), "Registry with sha256 should parse successfully");
+        let repo = parsed.unwrap();
+        assert_eq!(repo.plugins[0].name, "pTerm");
+        assert_eq!(repo.plugins[0].sha256, Some("0c36f35332eada4fd8dd6e5d3e6678bf637d3be6176d6ef638bffbe4a643e044".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_registry_missing_sha256() {
+        let json_data = r#"{
+            "repo_version": "1.0.0",
+            "plugins": [
+                {
+                    "name": "pTerm",
+                    "author": "plug",
+                    "version": "1.0.0",
+                    "description": "Terminal environment",
+                    "official": true
+                }
+            ]
+        }"#;
+
+        let parsed: Result<CloudRepo, _> = serde_json::from_str(json_data);
+        assert!(parsed.is_ok(), "Registry without sha256 should parse successfully (backwards compatible)");
+        let repo = parsed.unwrap();
+        assert_eq!(repo.plugins[0].name, "pTerm");
+        assert_eq!(repo.plugins[0].sha256, None, "Missing sha256 field should deserialize to None");
+    }
 }

@@ -7,6 +7,21 @@ on:
     branches: [ trunk, main ]
 
 jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Run Security Audit
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: plug.app/rt
+
   test-rust:
     name: Rust Unit Tests
     runs-on: ${{ matrix.os }}
@@ -59,18 +74,32 @@ jobs:
         run: cargo build --release --lib --target x86_64-pc-windows-msvc
 
       - name: Build WASM Plugins
+        shell: bash
         run: |
-          mkdir plugins
+          mkdir -p plugins
           rustc --target wasm32-unknown-unknown --crate-type cdylib plug.app/rt/src_plugins/pTerm/pTerm.rs -o plugins/pTerm.wasm -C opt-level=z -C lto=true -C link-arg=--allow-undefined
           cp plug.app/rt/src_plugins/plugin.toml plugins/plugin.toml
 
       - name: Run CMake Configuration
+        shell: bash
         run: |
-          cmake -G Ninja -S plug.cross/windows -B plug.cross/windows/build -DRUST_LIB_PATH=../../plug.app/rt/target/x86_64-pc-windows-msvc/release/tm_main.lib -DCMAKE_BUILD_TYPE=Release
+          cmake -G Ninja \
+            -S plug.cross/windows \
+            -B plug.cross/windows/build \
+            "-DRUST_LIB_PATH=${{ github.workspace }}/plug.app/rt/target/x86_64-pc-windows-msvc/release/tm_main.lib" \
+            -DCOMPILE_RUST_CORE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHIDE_CONSOLE=ON \
+            -DPLUG_ENABLE_HEADLESS_MODE=OFF
 
       - name: Compile plug executable
         run: |
-          cmake --build plug.cross/windows/build
+          cmake --build plug.cross/windows/build --config Release
+
+      - name: Run Unified Test Orchestrator
+        run: |
+          python tests/run.py --ci
+
 
   build-linux:
     name: Build plug (Linux)
@@ -92,18 +121,23 @@ jobs:
 
       - name: Build Rust Static Library
         working-directory: plug.app/rt
-        run: cargo build --release --lib
+        run: cargo build --release --lib --target x86_64-unknown-linux-gnu
 
       - name: Build WASM Plugins
         run: |
-          mkdir plugins
+          mkdir -p plugins
           rustc --target wasm32-unknown-unknown --crate-type cdylib plug.app/rt/src_plugins/pTerm/pTerm.rs -o plugins/pTerm.wasm -C opt-level=z -C lto=true -C link-arg=--allow-undefined
           cp plug.app/rt/src_plugins/plugin.toml plugins/plugin.toml
 
       - name: Run CMake Configuration
         run: |
-          cmake -G Ninja -S plug.cross/linux -B plug.cross/linux/build -DRUST_LIB_PATH=../../plug.app/rt/target/release/libtm_main.a -DCMAKE_BUILD_TYPE=Release
+          cmake -G Ninja -S plug.cross/linux -B plug.cross/linux/build "-DRUST_LIB_PATH=${{ github.workspace }}/plug.app/rt/target/x86_64-unknown-linux-gnu/release/libtm_main.a" -DCMAKE_BUILD_TYPE=Release
 
       - name: Compile plug executable
         run: |
           cmake --build plug.cross/linux/build
+
+      - name: Run Unified Test Orchestrator
+        run: |
+          python tests/run.py --ci
+
