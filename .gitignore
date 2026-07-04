@@ -17,8 +17,6 @@ cmake_install.cmake
 *.so
 *.dylib
 
-/plugins/
-
 /release/
 /release_linux_*/
 
