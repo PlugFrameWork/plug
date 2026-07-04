@@ -72,7 +72,7 @@
     },
     "build_options": {
         "hide_console": true,
-        "upx_compress": true,
+        "upx_compress": false,
         "upx_level": "--ultra-brute --lzma"
     }
 }

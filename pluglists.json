@@ -6,7 +6,8 @@
       "author": "plug",
       "version": "1.0.0",
       "description": "Terminal environment",
-      "official": true
+      "official": true,
+      "sha256": "27ac000576a856f4def1c14ae9bcb02b608214fc514905c529e9896e3b17b0a6"
     }
   ]
 }

@@ -1,2 +1,2 @@
-MAINICON ICON "O:/prj/p01/.wip/plug/plug.res/ast/ico/i-1.ico"
-1 24 "O:/prj/p01/.wip/plug/plug.cross/windows/plug.manifest"
+MAINICON ICON "../../plug.res/ast/ico/i-1.ico"
+1 24 "plug.manifest"

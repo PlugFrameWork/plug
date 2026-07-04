@@ -137,7 +137,20 @@ static void display_startup_error(const char* title, const char* message) {
 #endif
 }
 
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+extern "C" bool g_headless_mode = false;
+#endif
+
 int main() {
+#ifdef PLUG_ENABLE_HEADLESS_MODE
+    {
+        const char* headless = getenv("PLUG_HEADLESS");
+        if (headless && strcmp(headless, "1") == 0) {
+            g_headless_mode = true;
+        }
+    }
+#endif
+
 #ifdef _WIN32
     OSVERSIONINFOEXA osvi = {};
     osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEXA);

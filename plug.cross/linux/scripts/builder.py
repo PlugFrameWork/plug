@@ -22,6 +22,8 @@ def run_command(cmd, cwd, env=None):
         sys.exit(1)
 
 def build(toolchain_name=None):
+    import time
+    start_time = time.time()
     config = load_config()
     
     if toolchain_name is None:
@@ -40,7 +42,8 @@ def build(toolchain_name=None):
     
     release_dir = os.path.join(ROOT_DIR, f"release_linux_{arch}")
     build_dir = os.path.join(CROSS_DIR, "build", toolchain_name)
-    
+    if os.path.exists(build_dir):
+        shutil.rmtree(build_dir, ignore_errors=True)
     os.makedirs(release_dir, exist_ok=True)
     os.makedirs(build_dir, exist_ok=True)
     
@@ -81,8 +84,66 @@ def build(toolchain_name=None):
         print("[ERROR] 'cargo' is not found. Please install Rust (https://rustup.rs/)")
         sys.exit(1)
 
+    # 0. Build WASM plugins
+    print("\n[0] Building WASM Plugins...")
+    plugins_dir = os.path.join(ROOT_DIR, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    src_plugins_dir = os.path.join(RUST_APP_DIR, "src_plugins")
+    rustc_exe = tools.get("rustc", "rustc")
+    resolved_rustc = shutil.which(rustc_exe, path=env.get("PATH"))
+    if resolved_rustc:
+        import hashlib
+        for root, dirs, files in os.walk(src_plugins_dir):
+            for filename in files:
+                if filename.endswith(".rs") and not filename.startswith("."):
+                    name = os.path.splitext(filename)[0]
+                    hash_val = hashlib.md5(name.encode()).hexdigest()[:8]
+                    plugin_out_dir = os.path.join(plugins_dir, name)
+                    if os.path.exists(plugin_out_dir) and not os.path.isdir(plugin_out_dir):
+                        os.remove(plugin_out_dir)
+                    os.makedirs(plugin_out_dir, exist_ok=True)
+                    out_wasm = os.path.join(plugin_out_dir, f"{name}.{hash_val}")
+                    out_hash = os.path.join(plugin_out_dir, f"{name}.hash")
+                    
+                    print(f"[WASM] Compiling {name}...")
+                    run_command([
+                        resolved_rustc, "--target", "wasm32-unknown-unknown",
+                        "--crate-type", "cdylib", os.path.join(root, filename),
+                        "-o", out_wasm,
+                        "-C", "opt-level=z",
+                        "-C", "lto=true",
+                        "-C", "strip=symbols"
+                    ], cwd=RUST_APP_DIR, env=env)
+                
+                with open(out_hash, "w") as hf:
+                    hf.write(hash_val)
+
+                if name == "pTerm":
+                    with open(out_wasm, "rb") as wf:
+                        wasm_bytes = wf.read()
+                    pterm_sha = hashlib.sha256(wasm_bytes).hexdigest()
+                    hash_file_path = os.path.join(RUST_APP_DIR, "pterm_hash.txt")
+                    with open(hash_file_path, "w") as hf:
+                        hf.write(pterm_sha)
+                    print(f"[WASM] Updated pTerm hardcoded trust hash: {pterm_sha}")
+        
+        src_toml = os.path.join(src_plugins_dir, "plugin.toml")
+        dst_toml = os.path.join(plugins_dir, "plugin.toml")
+        if os.path.exists(src_toml):
+            shutil.copy2(src_toml, dst_toml)
+
     # 1. Build Rust
     print(f"\n[1] Building Rust Runtime ({toolchain_name})...")
+    
+    hash_file = os.path.join(RUST_APP_DIR, "pterm_hash.txt")
+    if not os.path.exists(hash_file):
+        print("[ERROR] pterm_hash.txt not found. Build WASM plugins first to generate the trust hash.")
+        sys.exit(1)
+        
+    if os.path.getmtime(hash_file) < start_time - 2:
+        print("[ERROR] pterm_hash.txt is stale (not rebuilt in this run). Force rebuilding plugins first.")
+        sys.exit(1)
+
     rust_target = tc["rust_target"]
     run_command([resolved_cargo, "build", "--release", "--target", rust_target], cwd=RUST_APP_DIR, env=env)
     rust_lib_path = os.path.join(RUST_APP_DIR, "target", rust_target, "release", "libtm_main.a")

@@ -8,5 +8,5 @@ pub mod c_q;
 pub mod c_nt;
 pub mod c_plug;
 
-pub static SESSION_PLUGINS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+pub static SESSION_PLUGINS: Lazy<Mutex<HashMap<String, (String, String)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 

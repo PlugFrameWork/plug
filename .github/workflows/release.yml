@@ -32,15 +32,17 @@ jobs:
         run: cargo build --release --lib --target x86_64-pc-windows-msvc
 
       - name: Build WASM Plugins
+        shell: bash
         run: |
-          mkdir release_pkg
-          mkdir release_pkg/plugins
+          mkdir -p release_pkg
+          mkdir -p release_pkg/plugins
           rustc --target wasm32-unknown-unknown --crate-type cdylib plug.app/rt/src_plugins/pTerm/pTerm.rs -o release_pkg/plugins/pTerm.wasm -C opt-level=z -C lto=true -C link-arg=--allow-undefined
           cp plug.app/rt/src_plugins/plugin.toml release_pkg/plugins/plugin.toml
 
       - name: Run CMake Configuration
         run: |
-          cmake -G Ninja -S plug.cross/windows -B plug.cross/windows/build -DRUST_LIB_PATH=../../plug.app/rt/target/x86_64-pc-windows-msvc/release/tm_main.lib -DCMAKE_BUILD_TYPE=Release
+          cmake -G Ninja -S plug.cross/windows -B plug.cross/windows/build "-DRUST_LIB_PATH=${{ github.workspace }}/plug.app/rt/target/x86_64-pc-windows-msvc/release/tm_main.lib" -DCOMPILE_RUST_CORE=OFF -DCMAKE_BUILD_TYPE=Release
+
 
       - name: Compile plug executable
         run: |
@@ -78,7 +80,7 @@ jobs:
 
       - name: Build Rust Static Library
         working-directory: plug.app/rt
-        run: cargo build --release --lib
+        run: cargo build --release --lib --target x86_64-unknown-linux-gnu
 
       - name: Build WASM Plugins
         run: |
@@ -88,7 +90,7 @@ jobs:
 
       - name: Run CMake Configuration
         run: |
-          cmake -G Ninja -S plug.cross/linux -B plug.cross/linux/build -DRUST_LIB_PATH=../../plug.app/rt/target/release/libtm_main.a -DCMAKE_BUILD_TYPE=Release
+          cmake -G Ninja -S plug.cross/linux -B plug.cross/linux/build "-DRUST_LIB_PATH=${{ github.workspace }}/plug.app/rt/target/x86_64-unknown-linux-gnu/release/libtm_main.a" -DCMAKE_BUILD_TYPE=Release
 
       - name: Compile plug executable
         run: |
