@@ -1,0 +1,13 @@
+{
+  "repo_version": "1.0.0",
+  "plugins": [
+    {
+      "name": "pTerm",
+      "author": "plug",
+      "version": "1.0.0",
+      "description": "Terminal environment",
+      "official": true
+    }
+  ]
+}
+
