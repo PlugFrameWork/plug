@@ -15,7 +15,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Run Security Audit
         uses: rustsec/audit-check@v2.0.0
         with:
@@ -34,7 +34,7 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -56,7 +56,7 @@ jobs:
     needs: test-rust
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -107,7 +107,7 @@ jobs:
     needs: test-rust
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
