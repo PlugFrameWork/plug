@@ -2,6 +2,6 @@
 name = "pTerm"
 version = "1.0.0"
 author = "plug"
-api_version = "0.1.0a"
+api_version = "0.1.2a"
 permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 

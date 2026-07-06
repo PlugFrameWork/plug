@@ -37,7 +37,7 @@ Permissions must be explicitly requested to call sensitive host FFI imports:
 name = "my_plugin"
 version = "1.0.0"
 author = "Dev"
-api_version = "0.1.0a"
+api_version = "xxx"
 permissions = [
   "host_exec",         # Spawning local commands (CMD / PowerShell)
   "main_w_add_tab",    # Spawning new tabs

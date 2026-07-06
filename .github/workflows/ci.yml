@@ -117,7 +117,7 @@ jobs:
       - name: Install GTK4 Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev pkg-config ninja-build libx11-dev
+          sudo apt-get install -y libgtk-4-dev pkg-config ninja-build libx11-dev xvfb
 
       - name: Build Rust Static Library
         working-directory: plug.app/rt
@@ -139,5 +139,5 @@ jobs:
 
       - name: Run Unified Test Orchestrator
         run: |
-          python tests/run.py --ci
+          xvfb-run --auto-servernum python tests/run.py --ci
 

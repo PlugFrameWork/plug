@@ -9,13 +9,13 @@
 #include <unistd.h>
 #endif
 
-// Rust FFI declarations
+// rust FFI declarations
 extern "C" {
     int c_init(void);
     void c_cleanup(void);
     int c_parse(char* input);
     
-    // Mocks of Win32/GTK interface logs and callbacks
+    // mocks of Win32/GTK interface logs and callbacks
     void main_w_print_info(const char* msg) { if (msg) std::cout << "[INFO] " << msg << "\n"; }
     void main_w_print_error(const char* msg) { if (msg) std::cerr << "[ERROR] " << msg << "\n"; }
     void main_w_add_tab(const char* owner) { if (owner) std::cout << "[TAB] " << owner << "\n"; }
@@ -27,7 +27,7 @@ extern "C" {
     int main_w_get_current_print_tab() { return 0; }
     void main_w_request_close() { std::cout << "[CLOSE]\n"; }
     
-    // Linux FFI interface mocks
+    // linux FFI interface mocks
     void main_l_print_info(const char* msg) { main_w_print_info(msg); }
     void main_l_print_error(const char* msg) { main_w_print_error(msg); }
     void main_l_add_tab(const char* owner) { main_w_add_tab(owner); }
@@ -41,7 +41,7 @@ extern "C" {
 }
 
 int main() {
-    // Initialize standard streams to force UTF-8 on Windows
+    // initialize standard streams to force UTF-8 on Windows
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -56,7 +56,7 @@ int main() {
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
         
-        // Pass to FFI router
+        // pass to FFI router
         std::vector<char> buf(line.begin(), line.end());
         buf.push_back('\0');
         

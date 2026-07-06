@@ -348,7 +348,7 @@ def main():
             with open(marker_path, "w") as f:
                 f.write("v1_done")
                 
-        # find official pterm wasm file from freshly built workspace plugin directory
+        # find official wasm file from freshly built workspace plugin directory
         pterm_src = list((project_root / "plugins" / "pTerm").glob("pTerm.*"))
         pterm_wasm = [p for p in pterm_src if p.suffix not in (".hash", ".integrity", ".tmp")][0]
         
@@ -359,18 +359,18 @@ def main():
 name = "pTerm"
 version = "1.0.0"
 author = "plug"
-api_version = "0.1.0a"
+api_version = "0.1.2a"
 permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
-        # setup pterm plugin in sandbox without .integrity file
+        # setup plugin in sandbox without .integrity file
         setup_plugin_sandbox(
             "pTerm",
             pterm_wasm,
             pterm_toml_path,
             plug_dir
         )
-        # delete pterm's .integrity file
+        # delete .integrity file
         pterm_integrity = plug_dir / "pTerm.integrity"
         if pterm_integrity.exists():
             pterm_integrity.unlink()
@@ -432,7 +432,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
 name = "pTerm"
 version = "1.0.0"
 author = "plug"
-api_version = "0.1.0a"
+api_version = "0.1.2a"
 permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
@@ -505,7 +505,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
         server_thread.start()
         
         try:
-            # let's write mock pterm.wasm file
+            # write mock pterm.wasm file
             mock_wasm_content = b"mock WASM binary content for pTerm"
             mock_wasm_hash = hashlib.sha256(mock_wasm_content).hexdigest()
             
@@ -520,7 +520,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
 name = "pTerm"
 version = "1.0.0"
 author = "plug"
-api_version = "0.1.0a"
+api_version = "0.1.2a"
 permissions = ["host_exec"]
 """)
             

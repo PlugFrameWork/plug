@@ -2,5 +2,5 @@
 name = "rogue_plugin"
 version = "1.0.0"
 author = "test"
-api_version = "0.1.0a"
+api_version = "0.1.2a"
 permissions = []

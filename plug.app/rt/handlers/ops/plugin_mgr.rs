@@ -18,7 +18,7 @@ use crate::ops::net::http_post_json;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const HOST_API_VERSION: &str = "0.1.0a";
+const HOST_API_VERSION: &str = "0.1.2a";
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct AllowedCommand {

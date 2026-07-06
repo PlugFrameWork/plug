@@ -138,7 +138,13 @@ def run_cmake(tc_name, tc_config, tools, rust_lib_path, build_opts, env, headles
     
     if not os.path.isabs(ninja_exe):
         if "\\" in ninja_exe or "/" in ninja_exe:
-            ninja_exe = str((CROSS_DIR / ninja_exe).resolve())
+            resolved_path = (CROSS_DIR / ninja_exe).resolve()
+            if resolved_path.exists():
+                ninja_exe = str(resolved_path)
+            elif shutil.which("ninja"):
+                ninja_exe = "ninja"
+            else:
+                ninja_exe = str(resolved_path)
     
     extra_flags = tc_config.get('extra_flags', '')
     
