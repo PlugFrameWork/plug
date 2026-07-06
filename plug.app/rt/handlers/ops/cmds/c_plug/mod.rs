@@ -91,12 +91,14 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
     let mut downloaded_wasm = progress::download_with_progress(&url_wasm, tmp_wasm.to_str().unwrap(), silent);
     if !downloaded_wasm {
         // local fallback: copy plugin from local path if download fail
-        let local_wasm = PathBuf::from("plugins").join(clean_name).join(clean_name);
-        if local_wasm.exists() {
-            if let Ok(_) = fs::copy(&local_wasm, &tmp_wasm) {
-                downloaded_wasm = true;
-                if !silent {
-                    print_info(&format!("local fallback: copy plugin from {}", local_wasm.display()));
+        if let Some(plugins_dir) = find_local_plugins_dir() {
+            let local_wasm = plugins_dir.join(clean_name).join(clean_name);
+            if local_wasm.exists() {
+                if let Ok(_) = fs::copy(&local_wasm, &tmp_wasm) {
+                    downloaded_wasm = true;
+                    if !silent {
+                        print_info(&format!("local fallback: copy plugin from {}", local_wasm.display()));
+                    }
                 }
             }
         }
@@ -109,12 +111,14 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
         let mut downloaded_toml = progress::download_with_progress(&url_toml, tmp_toml.to_str().unwrap(), true);
         if !downloaded_toml {
             // local fallback: copy manifest if download fail
-            let local_toml = PathBuf::from("plugins").join("plugin.toml");
-            if local_toml.exists() {
-                if let Ok(_) = fs::copy(&local_toml, &tmp_toml) {
-                    downloaded_toml = true;
-                    if !silent {
-                        print_info(&format!("local fallback: copy manifest from {}", local_toml.display()));
+            if let Some(plugins_dir) = find_local_plugins_dir() {
+                let local_toml = plugins_dir.join("plugin.toml");
+                if local_toml.exists() {
+                    if let Ok(_) = fs::copy(&local_toml, &tmp_toml) {
+                        downloaded_toml = true;
+                        if !silent {
+                            print_info(&format!("local fallback: copy manifest from {}", local_toml.display()));
+                        }
                     }
                 }
             }
@@ -195,4 +199,30 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
     }
 
     if success { 0 } else { -1 }
+}
+
+fn find_local_plugins_dir() -> Option<PathBuf> {
+    // scan upwards from executable path to find plugins folder
+    if let Ok(exe) = std::env::current_exe() {
+        let mut parent = exe.parent();
+        while let Some(p) = parent {
+            let path = p.join("plugins");
+            if path.exists() && path.is_dir() {
+                return Some(path);
+            }
+            parent = p.parent();
+        }
+    }
+    // scan upwards from current directory
+    if let Ok(cur) = std::env::current_dir() {
+        let mut parent = Some(cur.as_path());
+        while let Some(p) = parent {
+            let path = p.join("plugins");
+            if path.exists() && path.is_dir() {
+                return Some(path);
+            }
+            parent = p.parent();
+        }
+    }
+    None
 }

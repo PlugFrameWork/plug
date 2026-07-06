@@ -73,8 +73,7 @@ pub fn c_check(_args: *const i8) -> i32 {
     let mut ok = last_hr == 0;
     if !ok {
         // local fallback: copy registry from pluglists.json if download fail
-        let local_registry = std::path::PathBuf::from("pluglists.json");
-        if local_registry.exists() {
+        if let Some(local_registry) = find_local_file("pluglists.json") {
             if let Ok(_) = fs::copy(&local_registry, temp_path) {
                 ok = true;
             }
@@ -128,6 +127,32 @@ pub fn c_check(_args: *const i8) -> i32 {
         print_info(&format!("Network Error: Could not fetch plugin list from Github. Last HRESULT=0x{:08X}", last_hr as u32));
     }
     0
+}
+
+fn find_local_file(filename: &str) -> Option<std::path::PathBuf> {
+    // scan upwards from executable path to find target file
+    if let Ok(exe) = std::env::current_exe() {
+        let mut parent = exe.parent();
+        while let Some(p) = parent {
+            let path = p.join(filename);
+            if path.exists() && path.is_file() {
+                return Some(path);
+            }
+            parent = p.parent();
+        }
+    }
+    // scan upwards from current directory
+    if let Ok(cur) = std::env::current_dir() {
+        let mut parent = Some(cur.as_path());
+        while let Some(p) = parent {
+            let path = p.join(filename);
+            if path.exists() && path.is_file() {
+                return Some(path);
+            }
+            parent = p.parent();
+        }
+    }
+    None
 }
 
 #[cfg(test)]

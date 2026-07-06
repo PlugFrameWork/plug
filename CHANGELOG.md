@@ -10,7 +10,6 @@
 * Dependabot integration under `.github/dependabot.yml` tracking Rust cargo packages and GitHub Actions.
 * Custom structured issue templates (Bug Report, Feature Request, Plugin Submission) and a Pull Request template in `.github/`.
 
-
 ### Fixed
 * Stale cache build errors by unlinking old host binaries if `pterm_hash.txt` has changed.
 * Registry trusted validation check by trimming white-spaces inside the compile-time `TRUSTED_PLUGIN_HASHES` comparison array.
@@ -32,8 +31,6 @@
 ---
 
 ## [0.1.0a] - 2026-07-04
-
-This is the initial release of the **plug** framework, establishing a robust multitab desktop UI shell linked with a sandboxed WebAssembly execution engine.
 
 ### Added
 * **Native/FFI Interface**: C++ application shell linked to a Rust runtime staticlib (`tm_main`).

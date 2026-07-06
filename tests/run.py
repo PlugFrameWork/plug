@@ -357,14 +357,26 @@ def main():
     with ThreadPoolExecutor(max_workers=len(unit_tests)) as executor:
         futures = [executor.submit(run_test_script, ut, env_ctx) for ut in unit_tests if ut.exists()]
         for f in futures:
-            results.append(f.result())
+            res = f.result()
+            results.append(res)
+            status = "PASSED" if res["success"] else "FAILED"
+            print(f"[TEST] {res['name']} {status}")
+            if not res["success"]:
+                print(f"--- STDOUT ({res['name']}) ---\n{res['stdout']}")
+                print(f"--- STDERR ({res['name']}) ---\n{res['stderr']}")
             
     # run integration and e2e test sequentially to prevent locking collisions
     print("[ORCHESTRATOR] Executing Integration and E2E Tests sequentially...")
     sequential_tests = integration_tests + e2e_tests
     for t in sequential_tests:
         if t.exists():
-            results.append(run_test_script(t, env_ctx))
+            res = run_test_script(t, env_ctx)
+            results.append(res)
+            status = "PASSED" if res["success"] else "FAILED"
+            print(f"[TEST] {res['name']} {status}")
+            if not res["success"]:
+                print(f"--- STDOUT ({res['name']}) ---\n{res['stdout']}")
+                print(f"--- STDERR ({res['name']}) ---\n{res['stderr']}")
             
     # 4. generate reports
     results_xml = project_root / "tests" / ".artifacts" / "results.xml"
