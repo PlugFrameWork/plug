@@ -56,7 +56,7 @@ jobs:
           compress-archive -Path release_pkg/* -DestinationPath plug-windows-x64.zip
 
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-asset
           path: plug-windows-x64.zip
@@ -104,7 +104,7 @@ jobs:
           zip -r plug-linux-x64.zip release_pkg/*
 
       - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-asset
           path: plug-linux-x64.zip
