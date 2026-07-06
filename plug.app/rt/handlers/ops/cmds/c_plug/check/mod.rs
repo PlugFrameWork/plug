@@ -33,7 +33,9 @@ fn compare_versions(registry: &str, local: &str) -> bool {
 }
 
 pub fn download_file_hr(url: &str, dest: &str) -> i32 {
-    let req = ureq::get(url).set("Cache-Control", "no-cache");
+    let req = ureq::get(url)
+        .set("Cache-Control", "no-cache")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     match req.call() {
         Ok(res) => {
             if let Ok(mut file) = fs::File::create(dest) {

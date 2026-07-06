@@ -97,7 +97,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
                 if let Ok(_) = fs::copy(&local_wasm, &tmp_wasm) {
                     downloaded_wasm = true;
                     if !silent {
-                        print_info(&format!("local fallback: copy plugin from {}", local_wasm.display()));
+                        print_info(&format!("local fallback: copy plugin: {}", clean_name));
                     }
                 }
             }
@@ -117,7 +117,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
                     if let Ok(_) = fs::copy(&local_toml, &tmp_toml) {
                         downloaded_toml = true;
                         if !silent {
-                            print_info(&format!("local fallback: copy manifest from {}", local_toml.display()));
+                            print_info("local fallback: copy manifest");
                         }
                     }
                 }
@@ -137,7 +137,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
 
             let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&wasm_bytes);
 
-            // phase 2.3: verify against registry-pinned hash (fail-closed on missing or mismatch)
+            // verify against registry-pinned hash (fail-closed on missing or mismatch)
             if registry_sha256.is_empty() {
                 print_error(&format!("[SECURITY] Missing pinned hash in registry for plugin: {}. Aborting installation.", clean_name));
                 let _ = fs::remove_file(&tmp_wasm);

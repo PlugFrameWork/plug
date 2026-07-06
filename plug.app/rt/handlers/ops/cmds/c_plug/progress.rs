@@ -4,7 +4,7 @@ use std::time::{Instant, Duration};
 use crate::ops::host::print_info;
 
 pub fn download_with_progress(url: &str, dest_path: &str, silent: bool) -> bool {
-    let agent = "plug-agent";
+    let agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     let req = ureq::get(url).set("User-Agent", agent);
     let response = match req.call() {
         Ok(res) => res,

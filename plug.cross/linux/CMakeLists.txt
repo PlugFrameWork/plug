@@ -4,6 +4,11 @@ project(plug LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(PLUG_ENABLE_HEADLESS_MODE "Enable headless mode for E2E testing" OFF)
+if(PLUG_ENABLE_HEADLESS_MODE)
+    add_compile_definitions(PLUG_ENABLE_HEADLESS_MODE)
+endif()
+
 set(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(APP_DIR "${ROOT_DIR}/plug.app")
 set(COMMON_DIR "${APP_DIR}/cmn")

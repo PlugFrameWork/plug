@@ -80,7 +80,8 @@ def main():
             sys_drive += "\\"
         plug_dir = Path(sys_drive) / ".plug" / "plugins"
     else:
-        plug_dir = Path("/.plug/plugins")
+        # on linux systemdrive is not set so app default to c:\
+        plug_dir = Path("C:\\") / ".plug" / "plugins"
         
     # backup existing plugin folder if it exists
     backup_dir = plug_dir.parent / "plugins_backup"

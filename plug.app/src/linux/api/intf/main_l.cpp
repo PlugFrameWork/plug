@@ -37,12 +37,56 @@ std::vector<TabState> g_tabs;
 int g_active_tab = 0;
 std::mutex g_mutex;
 
+extern "C" bool g_headless_mode;
 static std::thread g_cmd_thread;
 static std::mutex g_cmd_mutex;
 static std::condition_variable g_cmd_cv;
 struct CmdItem { int tab; std::string cmd; };
 static std::queue<CmdItem> g_cmd_queue;
 static std::atomic_bool g_cmd_thread_running{false};
+static std::thread g_headless_stdin_thread;
+
+static void headless_stdin_worker(void) {
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) continue;
+        
+        if (line == "__dump_state__") {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            std::cout << "\n---STATE_DUMP_START---\n";
+            std::cout << "{\n";
+            std::cout << "  \"active_tab\": " << g_active_tab << ",\n";
+            std::cout << "  \"tabs\": [\n";
+            for (size_t i = 0; i < g_tabs.size(); ++i) {
+                std::string title_utf8 = g_tabs[i].title;
+                std::string raw_input = g_tabs[i].input_buffer;
+                std::string escaped_input;
+                for (char c : raw_input) {
+                    if (c == '\\') escaped_input += "\\\\";
+                    else if (c == '"') escaped_input += "\\\"";
+                    else escaped_input += c;
+                }
+                std::cout << "    {\n";
+                std::cout << "      \"index\": " << i << ",\n";
+                std::cout << "      \"title\": \"" << title_utf8 << "\",\n";
+                std::cout << "      \"input_buffer\": \"" << escaped_input << "\",\n";
+                std::cout << "      \"plugin_owner\": \"" << (g_tabs[i].plugin_owner.empty() ? "" : g_tabs[i].plugin_owner) << "\"\n";
+                std::cout << "    }" << (i + 1 < g_tabs.size() ? "," : "") << "\n";
+            }
+            std::cout << "  ]\n";
+            std::cout << "}\n";
+            std::cout << "---STATE_DUMP_END---\n" << std::endl;
+            continue;
+        }
+
+        // push command to queue
+        {
+            std::lock_guard<std::mutex> clk(g_cmd_mutex);
+            g_cmd_queue.push({g_active_tab, line});
+            g_cmd_cv.notify_one();
+        }
+    }
+}
 thread_local int g_print_tab = -1;
 int g_hover_close_tab = -1;
 std::vector<HitBox> g_tab_close_boxes;
@@ -429,7 +473,7 @@ static void on_drag_end(GtkGestureDrag *gesture, double offset_x, double offset_
 }
 
 static gboolean on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data) {
-    // Check if command thread is active (pseudo-logic for now to match Windows)
+    // check if command thread is active
     if (!g_cmd_thread_running) {
         g_cmd_thread_running = true;
         g_cmd_thread = std::thread([]() {
@@ -450,6 +494,9 @@ static gboolean on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer 
                 }
             }
         });
+        if (g_headless_mode) {
+            g_headless_stdin_thread = std::thread(headless_stdin_worker);
+        }
     }
 
     {
@@ -545,6 +592,9 @@ void main_l_cleanup(void) {
     if (g_app) {
         g_object_unref(g_app);
         g_app = NULL;
+    }
+    if (g_headless_stdin_thread.joinable()) {
+        g_headless_stdin_thread.detach();
     }
 }
 
