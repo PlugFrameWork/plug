@@ -43,7 +43,7 @@ pub fn http_post_json(url: &str, json_payload: &str) -> Result<String, String> {
 
 /// check if internet is online
 pub fn is_online() -> bool {
-    // quick check using Google DNS
+    // quick check using google dns
     ureq::get("http://clients3.google.com/generate_204")
         .timeout(Duration::from_secs(3))
         .call()

@@ -15,6 +15,9 @@ PLUGINS_DIR = ROOT_DIR / "plugins"
 RELEASE_DIR_BASE = CROSS_DIR.parent / "release"
 CMAKE_BUILD_DIR = CROSS_DIR / "build"
 
+sys.path.append(str((ROOT_DIR / "tests").resolve()))
+from build_utils import compile_wasm_plugin
+
 def load_config():
     if not CONFIG_PATH.exists():
         print(f"[ERROR] Config not found: {CONFIG_PATH}")
@@ -57,7 +60,6 @@ def build_rust_plugins(tools, env):
     PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     src_plugins_dir = RUST_DIR / "src_plugins"
     
-    rustc_exe = tools.get("rustc", "rustc")
     import hashlib
     
     for f in src_plugins_dir.rglob("*.rs"):
@@ -76,15 +78,8 @@ def build_rust_plugins(tools, env):
         out_hash = plugin_out_dir / f"{name}.hash"
         
         print(f"[WASM] Compiling {name} (hash: {hash_val})...")
-        cmd = [
-            rustc_exe, "--target", "wasm32-unknown-unknown", 
-            "--crate-type", "cdylib", str(f), 
-            "-o", str(out_wasm), 
-            "-C", "opt-level=z", 
-            "-C", "lto=true", 
-            "-C", "strip=symbols"
-        ]
-        run_cmd(cmd, env=env)
+        # Use the shared compile helper from tests/build_utils.py
+        compile_wasm_plugin(f, out_wasm)
         
         with open(out_hash, "w", encoding="utf-8") as hf:
             hf.write(hash_val)

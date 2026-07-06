@@ -9,7 +9,7 @@ def main():
     build_dir = script_dir / "build"
     build_dir.mkdir(parents=True, exist_ok=True)
     
-    # Check env context
+    # check env context
     env_ctx = {}
     if "ENV_CONTEXT" in os.environ:
         try:
@@ -19,13 +19,13 @@ def main():
             
     system = env_ctx.get("os", platform.system())
     
-    # Configure and compile using CMake
+    # configure and compile using cmake
     print("[CPP UNIT] Configuring CMake...")
     try:
-        # Use Ninja if available, otherwise default generator
+        # use ninja if available, otherwise default generator
         generator_args = []
         if system == "Windows":
-            # For Windows, check if Ninja is in tool path
+            # for windows, check if ninja is in tool path
             generator_args = ["-G", "Ninja"]
             
         subprocess.check_call(["cmake", "-S", str(script_dir), "-B", str(build_dir)] + generator_args, stdout=subprocess.DEVNULL)
@@ -35,12 +35,12 @@ def main():
         print(f"[CPP UNIT-ERROR] Failed to compile C++ unit tests: {e}")
         sys.exit(1)
         
-    # Run the compiled test binary
+    # run compiled test binary
     binary_name = "test_runner.exe" if system == "Windows" else "test_runner"
     exe_path = build_dir / binary_name
     
     if not exe_path.exists():
-        # Check alternative Release folders
+        # check alternative release folders
         alt_paths = [build_dir / "Release" / binary_name, build_dir / "Debug" / binary_name]
         for alt in alt_paths:
             if alt.exists():

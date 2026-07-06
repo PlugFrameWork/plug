@@ -7,7 +7,7 @@ def run_tests():
     rust_rt_dir = project_root / "plug.app" / "rt"
 
     print("==================================================")
-    # 1. Run Cargo Tests
+    # 1. run cargo test
     print("Running Rust Runtime Unit Tests via Cargo...")
     print("Directory: ", rust_rt_dir)
     print("==================================================")

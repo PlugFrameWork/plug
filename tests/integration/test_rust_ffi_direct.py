@@ -9,7 +9,7 @@ def main():
     rt_dir = project_root / "plug.app" / "rt"
     
     try:
-        # Run cargo test for integration_tests
+        # run cargo test for integration_tests
         res = subprocess.run(
             ["cargo", "test", "--test", "integration_tests"],
             cwd=str(rt_dir),

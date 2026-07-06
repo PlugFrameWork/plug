@@ -265,7 +265,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
     let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&wasm_bytes);
 
     let mut is_trusted = false;
-    if TRUSTED_PLUGIN_HASHES.contains(&sha256_hex.as_str()) {
+    if TRUSTED_PLUGIN_HASHES.iter().any(|h| h.trim() == sha256_hex) {
         is_trusted = true;
     }
 
@@ -428,8 +428,8 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                             if let Some(file_name) = canonical_exe.file_name().and_then(|f| f.to_str()) {
                                 let f_lc = file_name.to_lowercase();
                                 // interpreter and lolbins that can execute arbitrary code
-                                // note: this list covers common cases but is not exhaustive.
-                                // see docs/security.md for known limitation.
+                                // note: this list covers common cases but is not exhaustive
+                                // see docs/security.md for known limitation
                                 let banned = [
                                     // shell
                                     "cmd.exe", "cmd",
@@ -452,7 +452,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                                 ];
                                 if banned.contains(&f_lc.as_str()) {
                                     // test coupling: this message is asserted in tests/integration/test_sandbox_rules.py
-                                    // (has_banned_block check). rename here → must update assertion string there.
+                                    // (has_banned_block check). rename here → must update assertion string there
                                     print_error(&format!("[SECURITY] Blocked execution of banned binary: {}", file_name));
                                     return;
                                 }
@@ -475,11 +475,11 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                             }
                             
                             // replaced naive blacklist (rm/del/format substring match) with
-                            // canonical-path allowlist + argv-based exec (no shell interpretation).
-                            // see docs/security.md for threat model and rationale.
+                            // canonical-path allowlist + argv-based exec (no shell interpretation)
+                            // see docs/security.md for threat model and rationale
                             if !allowed {
                                 // test coupling: this message is asserted in tests/integration/test_sandbox_rules.py
-                                // (has_unauth_block check). rename here → must update assertion string there.
+                                // (has_unauth_block check). rename here → must update assertion string there
                                 print_error(&format!("[SECURITY] Blocked execution of unauthorized binary: {}", canonical_exe.display()));
                                 return;
                             }
@@ -772,9 +772,9 @@ pub fn get_loaded_plugins_info() -> Vec<(String, String, String)> {
     plugins.iter().filter(|p| p.name != "api").map(|p| (p.name.clone(), p.hash.clone(), p.manifest.version.clone())).collect()
 }
 
-/// called when a UI tab is closed. drops any plugin instance that was
-/// running inside that tab so we don't leak WASM memory or get stale
-/// callback firing into a now-deleted tab index.
+/// called when ui tab is closed. drops any plugin instance that was
+/// running inside that tab so we don't leak wasm memory or get stale
+/// callback firing into now-deleted tab index
 pub fn unload_plugin_by_tab(tab_idx: i32) {
     use crate::ops::host::get_tab_owner;
     let owner = match get_tab_owner(tab_idx) {
