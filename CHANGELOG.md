@@ -2,13 +2,12 @@
 
 ---
 
-## [0.1.2a] - 2026-07-07
+## [0.1.2a] - 2026-07-06 => 2026-07-07
 
 ### Added
 * Headless GTK stdin loop on Linux (`main_l.cpp`) enabling CI integration and E2E testing without a display server.
 * Shared WASM compilation module `tests/build_utils.py` to enforce `--allow-undefined` linker flags globally across all plugin builds.
 * Automated target binary copying and caching for Linux production builds.
-* Dependabot integration under `.github/dependabot.yml` tracking Rust cargo and GitHub Actions ecosystems.
 * Custom structured issue templates (Bug Report, Feature Request, Plugin Submission) and a Pull Request template in `.github/`.
 
 ### Fixed
@@ -19,6 +18,9 @@
 * Unused Windows-only `CommandExt` import in `plugin_mgr.rs` correctly scoped under `#[cfg(windows)]` to prevent cross-platform compiler warnings.
 * Improved plugin sandbox security by integrating plugin installation with global integrity verification and removing unsafe `eval()` in plugin initialization.
 * Fixed Linux CI build errors caused by MSVC-specific `/DELAYLOAD` pragmas in linker commands.
+* Linux production linker `undefined reference to 'g_headless_mode'` — guarded `extern "C"` declaration in `main_l.cpp` under `#ifdef PLUG_ENABLE_HEADLESS_MODE`; production builds now use `static constexpr bool g_headless_mode = false` with zero runtime cost.
+* GCC `-Wextern-initializer` warning in `main.cpp` — changed `extern "C" bool g_headless_mode = false` to block-form `extern "C" { bool g_headless_mode = false; }`.
+* Process hang on `/e` exit in headless mode — `g_cmd_thread` was blocking indefinitely on `g_cmd_cv.wait()`; `main_l_cleanup()` now sets `g_cmd_thread_running = false`, notifies the CV, and joins the thread before returning so the process exits cleanly within the test timeout window.
 
 ---
 

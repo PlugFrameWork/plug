@@ -593,12 +593,19 @@ void main_l_run_message_loop(void) {
 }
 
 void main_l_cleanup(void) {
+    // signal command thread to stop and wake it so it can exit
+    g_cmd_thread_running = false;
+    g_cmd_cv.notify_all();
+    if (g_cmd_thread.joinable()) {
+        g_cmd_thread.join();
+    }
+    // stdin worker blocks on getline; detach so it doesn't prevent exit
+    if (g_headless_stdin_thread.joinable()) {
+        g_headless_stdin_thread.detach();
+    }
     if (g_app) {
         g_object_unref(g_app);
         g_app = NULL;
-    }
-    if (g_headless_stdin_thread.joinable()) {
-        g_headless_stdin_thread.detach();
     }
 }
 

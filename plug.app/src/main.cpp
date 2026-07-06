@@ -138,7 +138,7 @@ static void display_startup_error(const char* title, const char* message) {
 }
 
 #ifdef PLUG_ENABLE_HEADLESS_MODE
-extern "C" bool g_headless_mode = false;
+extern "C" { bool g_headless_mode = false; }
 #endif
 
 int main() {
