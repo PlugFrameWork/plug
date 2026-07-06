@@ -70,7 +70,16 @@ pub fn c_check(_args: *const i8) -> i32 {
     let temp_file = temp_dir.join("pluglists.json");
     let temp_path = temp_file.to_str().unwrap();
     let last_hr = download_file_hr(&registry_url, temp_path);
-    let ok = last_hr == 0;
+    let mut ok = last_hr == 0;
+    if !ok {
+        // local fallback: copy registry from pluglists.json if download fail
+        let local_registry = std::path::PathBuf::from("pluglists.json");
+        if local_registry.exists() {
+            if let Ok(_) = fs::copy(&local_registry, temp_path) {
+                ok = true;
+            }
+        }
+    }
     if !ok {
         print_info(&format!(
             "  [WARN] Download failed (HRESULT=0x{:08X})", last_hr as u32

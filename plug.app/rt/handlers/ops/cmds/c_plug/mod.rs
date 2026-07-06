@@ -88,11 +88,39 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
 
     let mut success = false;
 
-    if progress::download_with_progress(&url_wasm, tmp_wasm.to_str().unwrap(), silent) {
+    let mut downloaded_wasm = progress::download_with_progress(&url_wasm, tmp_wasm.to_str().unwrap(), silent);
+    if !downloaded_wasm {
+        // local fallback: copy plugin from local path if download fail
+        let local_wasm = PathBuf::from("plugins").join(clean_name).join(clean_name);
+        if local_wasm.exists() {
+            if let Ok(_) = fs::copy(&local_wasm, &tmp_wasm) {
+                downloaded_wasm = true;
+                if !silent {
+                    print_info(&format!("local fallback: copy plugin from {}", local_wasm.display()));
+                }
+            }
+        }
+    }
+
+    if downloaded_wasm {
         if !silent {
             print_info("Downloading unified manifest file...");
         }
-        if progress::download_with_progress(&url_toml, tmp_toml.to_str().unwrap(), true) {
+        let mut downloaded_toml = progress::download_with_progress(&url_toml, tmp_toml.to_str().unwrap(), true);
+        if !downloaded_toml {
+            // local fallback: copy manifest if download fail
+            let local_toml = PathBuf::from("plugins").join("plugin.toml");
+            if local_toml.exists() {
+                if let Ok(_) = fs::copy(&local_toml, &tmp_toml) {
+                    downloaded_toml = true;
+                    if !silent {
+                        print_info(&format!("local fallback: copy manifest from {}", local_toml.display()));
+                    }
+                }
+            }
+        }
+
+        if downloaded_toml {
             let wasm_bytes = match fs::read(&tmp_wasm) {
                 Ok(bytes) => bytes,
                 Err(e) => {

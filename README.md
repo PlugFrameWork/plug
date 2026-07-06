@@ -12,7 +12,6 @@
 ## Features
 
 - **Sandboxed WASM Runtime**: Isolated memory execution using the Wasmer compiler. Note that the sandbox confines the plugin's memory space and relies on a host FFI permission gate for system capabilities.
-- **Registry Hash Pinning**: Mitigates Man-in-the-Middle (MITM) attacks by verifying remote plugin downloads against SHA-256 hashes pinned in the online registry.
 - **Granular Permissions Model**: Checks plugin FFI import access (e.g., tab management or host execution) against manifest declarations (`plugin.toml`).
 - **Multitab Desktop Shell**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
 - **Cross-Platform Native UI**: Compiles to Windows (Win32 GDI) and Linux (GTK4) with zero browser engine footprint.
