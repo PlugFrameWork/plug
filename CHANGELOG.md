@@ -2,18 +2,23 @@
 
 ---
 
-## [0.1.2a] - 2026-07-06
+## [0.1.2a] - 2026-07-07
 
 ### Added
-* Shared WASM compilation module `tests/build_utils.py` to enforce allow-undefined flags globally.
+* Headless GTK stdin loop on Linux (`main_l.cpp`) enabling CI integration and E2E testing without a display server.
+* Shared WASM compilation module `tests/build_utils.py` to enforce `--allow-undefined` linker flags globally across all plugin builds.
 * Automated target binary copying and caching for Linux production builds.
-* Dependabot integration under `.github/dependabot.yml` tracking Rust cargo packages and GitHub Actions.
+* Dependabot integration under `.github/dependabot.yml` tracking Rust cargo and GitHub Actions ecosystems.
 * Custom structured issue templates (Bug Report, Feature Request, Plugin Submission) and a Pull Request template in `.github/`.
 
 ### Fixed
-* Stale cache build errors by unlinking old host binaries if `pterm_hash.txt` has changed.
-* Registry trusted validation check by trimming white-spaces inside the compile-time `TRUSTED_PLUGIN_HASHES` comparison array.
-* Error reporting inside `verify_production_binary_clean` to distinguish missing binaries from symbol leaks.
+* Linux CI cross-compilation failure (`x86_64-pc-windows-gnu` target) — removed orphaned `.cargo/config.toml` that forced incorrect target resolution on Linux runners.
+* Stale host binary cache build errors: old binaries are unlinked when `pterm_hash.txt` has changed.
+* Registry trust validation check by trimming whitespace inside compile-time `TRUSTED_PLUGIN_HASHES` array comparisons.
+* Error reporting inside `verify_production_binary_clean` to distinguish missing binaries from forbidden-symbol leaks.
+* Unused Windows-only `CommandExt` import in `plugin_mgr.rs` correctly scoped under `#[cfg(windows)]` to prevent cross-platform compiler warnings.
+* Improved plugin sandbox security by integrating plugin installation with global integrity verification and removing unsafe `eval()` in plugin initialization.
+* Fixed Linux CI build errors caused by MSVC-specific `/DELAYLOAD` pragmas in linker commands.
 
 ---
 

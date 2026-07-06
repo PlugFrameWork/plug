@@ -37,7 +37,11 @@ std::vector<TabState> g_tabs;
 int g_active_tab = 0;
 std::mutex g_mutex;
 
+#ifdef PLUG_ENABLE_HEADLESS_MODE
 extern "C" bool g_headless_mode;
+#else
+static constexpr bool g_headless_mode = false;
+#endif
 static std::thread g_cmd_thread;
 static std::mutex g_cmd_mutex;
 static std::condition_variable g_cmd_cv;
