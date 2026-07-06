@@ -10,7 +10,7 @@ path = "handlers/lib.rs"
 
 [dependencies]
 ureq = { version = "2.9", default-features = false, features = ["tls", "native-certs", "json"] }
-wasmer = { version = "4.3.0", default-features = false, features = ["cranelift"] }
+wasmer = { version = "7.2.0", default-features = false, features = ["cranelift"] }
 wasmer-compiler-cranelift = "4.3.0"
 once_cell = "1.19.0"
 toml = "0.8"
