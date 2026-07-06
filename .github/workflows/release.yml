@@ -118,12 +118,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Windows Asset
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-asset
 
       - name: Download Linux Asset
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-asset
 
