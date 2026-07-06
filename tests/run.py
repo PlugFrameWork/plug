@@ -9,14 +9,17 @@ from concurrent.futures import ThreadPoolExecutor
 import xml.etree.ElementTree as ET
 import shutil
 
-# Import preflight
+# import preflight
 from preflight import run_preflight
+
+sys.path.append(str(Path(__file__).parent.resolve()))
+from build_utils import compile_wasm_plugin as compile_wasm_shared
 
 def compile_wasm_plugin(src_file: Path, dest_dir: Path, manifest_file: Path) -> bool:
     plugin_name = src_file.stem
     dest_wasm = dest_dir / f"{plugin_name}.wasm"
     
-    # Cache check: if dest_wasm exists and is newer than source and configs, skip compilation
+    # cache check: if dest_wasm exists and is newer than source and configs, skip compilation
     if dest_wasm.exists():
         dest_mtime = dest_wasm.stat().st_mtime
         src_mtime = src_file.stat().st_mtime
@@ -25,27 +28,16 @@ def compile_wasm_plugin(src_file: Path, dest_dir: Path, manifest_file: Path) -> 
         cargo_lock_mtime = cargo_lock.stat().st_mtime if cargo_lock.exists() else 0
         
         if dest_mtime > max(src_mtime, manifest_mtime, cargo_lock_mtime):
-            # Up to date
+            # up to date
             return True
             
     print(f"[BUILD] Compiling mock plugin: {plugin_name}...")
-    try:
-        subprocess.check_call([
-            "rustc",
-            "--target", "wasm32-unknown-unknown",
-            "-O",
-            "--crate-type", "cdylib",
-            "-C", "link-arg=--allow-undefined",
-            str(src_file),
-            "-o", str(dest_wasm)
-        ])
+    success = compile_wasm_shared(src_file, dest_wasm)
+    if success:
         print(f"[BUILD] Mock plugin {plugin_name} compiled successfully.")
-        return True
-    except Exception as e:
-        print(f"[BUILD-ERROR] Failed to compile mock plugin {plugin_name}: {e}")
-        return False
-# Strings that must NOT appear in the production binary.
-# Any of these appearing means a compile-time guard failed.
+    return success
+# strings that must not appear in production binary
+# any of these appearing means compile-time guard failed
 PRODUCTION_BINARY_FORBIDDEN_STRINGS = [
     "PLUG_HEADLESS",
     "headless_stdin_worker",
@@ -135,6 +127,14 @@ def build_project(project_root: Path, os_name: str, headless_test: bool = False)
                 cmake_args.append("-DPLUG_ENABLE_HEADLESS_MODE=OFF")
             subprocess.check_call(cmake_args)
             subprocess.check_call(["cmake", "--build", str(build_dir)])
+            
+            # copy compiled binary to release directory for linux target
+            release_subdir = "x86_64"
+            target_name = "plug-test-x64" if headless_test else "plug-x64"
+            dest_bin = project_root / "plug.cross" / "release" / release_subdir / target_name
+            dest_bin.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(build_dir / "plug", dest_bin)
+            print(f"[BUILD] Copied compiled binary to {dest_bin}")
             return True
     except Exception as e:
         print(f"[BUILD-ERROR] Build failed: {e}")
@@ -146,7 +146,7 @@ def run_test_script(script_path: Path, env_ctx: dict) -> dict:
     start_time = time.time()
     
     try:
-        # Run process
+        # run process
         res = subprocess.run(
             [sys.executable, str(script_path)],
             cwd=str(script_path.parent),
@@ -216,15 +216,24 @@ def main():
     start_time = time.time()
     project_root = Path(__file__).parent.parent.resolve()
     
-    # 1. Run Preflight
+    # 1. run preflight
     env_ctx = run_preflight(project_root)
     os_name = env_ctx["os"]
     
-    # Check build requirements
+    # check build requirements
     ci_mode = "--ci" in sys.argv or os.environ.get("CI") == "true"
     
-    # 1. Compile host production binary first to check compile integrity
+    # 1. compile host production binary first to check compile integrity
     target_bin_path = Path(env_ctx["target_bin"])
+    pterm_hash_file = project_root / "plug.app" / "rt" / "pterm_hash.txt"
+    if target_bin_path.exists() and pterm_hash_file.exists():
+        if pterm_hash_file.stat().st_mtime > target_bin_path.stat().st_mtime:
+            print("[ORCHESTRATOR] pterm_hash.txt updated. Forcing rebuild of production binary.")
+            try:
+                target_bin_path.unlink()
+            except Exception:
+                pass
+                
     if not target_bin_path.exists():
         if ci_mode:
             print("[ORCHESTRATOR] Build binary missing in CI. Compiling production host...")
@@ -240,11 +249,11 @@ def main():
             else:
                 print("[ORCHESTRATOR-WARNING] Proceeding without production host binary.")
 
-    # 2. Find and build Rust Core and E2E headless test binary
+    # 2. find and build rust core and e2e headless test binary
     rust_lib = find_rust_lib(project_root)
     if not rust_lib:
         print("[ORCHESTRATOR] Rust core library missing. Compiling static library...")
-        # Compile Rust library core
+        # compile rust library core
         is_msvc = (os.environ.get("VCINSTALLDIR") is not None) or shutil.which("cl") is not None
         if os_name == "Windows":
             target_tri = "x86_64-pc-windows-msvc" if is_msvc else "x86_64-pc-windows-gnu"
@@ -256,7 +265,7 @@ def main():
             print("[ORCHESTRATOR-ERROR] Failed to compile or locate Rust core library.")
             sys.exit(1)
             
-    # Locate/compile the headless-test variant plug-test-{arch}.exe
+    # locate/compile headless-test variant plug-test-{arch}.exe
     tc_cfg = project_root / "plug.cross" / "windows" / "config" / "toolchains.json"
     arch = "x64"
     if tc_cfg.exists():
@@ -273,6 +282,14 @@ def main():
         release_subdir = "x86_64" if arch == "x64" else arch
         test_bin_name = f"plug-test-{arch}"
     test_bin_path = project_root / "plug.cross" / "release" / release_subdir / test_bin_name
+    if test_bin_path.exists() and pterm_hash_file.exists():
+        if pterm_hash_file.stat().st_mtime > test_bin_path.stat().st_mtime:
+            print("[ORCHESTRATOR] pterm_hash.txt updated. Forcing rebuild of testing binary.")
+            try:
+                test_bin_path.unlink()
+            except Exception:
+                pass
+                
     if not test_bin_path.exists():
         print(f"[ORCHESTRATOR] Testing binary {test_bin_name} missing. Compiling...")
         if not build_project(project_root, os_name, headless_test=True):
@@ -283,16 +300,16 @@ def main():
 
 
 
-    # 2. Compile WASM fixtures
+    # 2. compile wasm fixtures
     fixtures_dir = project_root / "tests" / "fixtures"
     mock_plugins_dir = fixtures_dir / "mock_plugins"
     manifests_dir = fixtures_dir / "manifests"
     
-    # Create build destination dir
+    # create build destination dir
     wasm_dest_dir = fixtures_dir / "build"
     wasm_dest_dir.mkdir(parents=True, exist_ok=True)
     
-    # Compile each mock plugin
+    # compile each mock plugin
     plugins_to_build = ["ok_plugin", "rogue_plugin", "rogue_plugin_runtime"]
     for p in plugins_to_build:
         src = mock_plugins_dir / f"{p}.rs"
@@ -302,10 +319,10 @@ def main():
                 print(f"[ORCHESTRATOR-ERROR] Failed to compile fixture {p}.")
                 sys.exit(1)
 
-    # 3. Queue test scripts
+    # 3. queue test scripts
     unit_tests = [
         project_root / "tests" / "unit" / "rust_core" / "test_wrapper.py",
-        project_root / "tests" / "unit" / "cpp_ui" / "test_wrapper.py" # C++ unit tests python wrapper
+        project_root / "tests" / "unit" / "cpp_ui" / "test_wrapper.py" # c++ unit test python wrapper
     ]
     
     integration_tests = [
@@ -320,33 +337,36 @@ def main():
     
     results = []
 
-    # Security gate: verify production binary has no test-code leaks before running tests.
-    # This runs against plug.exe (the PLUG_ENABLE_HEADLESS_MODE=OFF build), not plug_test.exe.
+    # security gate: verify production binary has no test-code leaks before running test
+    # this run against plug.exe (plug_enable_headless_mode=off build), not plug_test.exe
     prod_bin_path = Path(env_ctx["release_dir"]) / env_ctx["binary_name"]
     leak_result = verify_production_binary_clean(prod_bin_path)
     results.append(leak_result)
     if not leak_result["success"]:
-        print(f"[ORCHESTRATOR-ERROR] Production binary symbol leak detected. Aborting test run.")
-        print(leak_result["stdout"])
+        if leak_result.get("stderr"):
+            print(f"[ORCHESTRATOR-ERROR] Production binary check failed: {leak_result['stderr'].strip()}")
+        else:
+            print(f"[ORCHESTRATOR-ERROR] Production binary symbol leak detected. Aborting test run.")
+            print(leak_result["stdout"])
         results_xml = project_root / "tests" / ".artifacts" / "results.xml"
         generate_junit_xml(results, results_xml)
         sys.exit(1)
 
-    # Run Unit Tests in parallel
+    # run unit test in parallel
     print("[ORCHESTRATOR] Executing Unit Tests in parallel...")
     with ThreadPoolExecutor(max_workers=len(unit_tests)) as executor:
         futures = [executor.submit(run_test_script, ut, env_ctx) for ut in unit_tests if ut.exists()]
         for f in futures:
             results.append(f.result())
             
-    # Run Integration and E2E Tests sequentially to prevent locking collisions
+    # run integration and e2e test sequentially to prevent locking collisions
     print("[ORCHESTRATOR] Executing Integration and E2E Tests sequentially...")
     sequential_tests = integration_tests + e2e_tests
     for t in sequential_tests:
         if t.exists():
             results.append(run_test_script(t, env_ctx))
             
-    # 4. Generate Reports
+    # 4. generate reports
     results_xml = project_root / "tests" / ".artifacts" / "results.xml"
     generate_junit_xml(results, results_xml)
     

@@ -25,7 +25,7 @@ def main():
         
     print("[E2E] Running CLI Lifecycle E2E tests against headless production-grade target...")
     
-    # 1. Load env context
+    # 1. load env context
     env_ctx = {}
     if "ENV_CONTEXT" in os.environ:
         try:
@@ -56,7 +56,7 @@ def main():
         print(f"[E2E-ERROR] Compiled test executable not found at: {target_bin}")
         sys.exit(1)
 
-    # Spawn process with pipes and PLUG_HEADLESS=1 env variable set
+    # spawn process with pipes and plug_headless=1 env variable set
     startupinfo = None
     if platform.system() == "Windows":
         startupinfo = subprocess.STARTUPINFO()
@@ -78,7 +78,7 @@ def main():
         env={**os.environ, "PLUG_HEADLESS": "1"}
     )
     
-    # Set up thread-safe queue readers
+    # set up thread-safe queue readers
     stdout_queue = queue.Queue()
     stderr_queue = queue.Queue()
     
@@ -91,31 +91,31 @@ def main():
     failed = False
     
     try:
-        # Step 1: Write about command /a
+        # step 1: write about command /
         print("[E2E] Step 1: Sending about command /a...")
         proc.stdin.write("/a\n")
         proc.stdin.flush()
         time.sleep(0.5)
             
-        # Step 2: Write tab command /tab
+        # step 2: write tab command /tab
         print("[E2E] Step 2: Sending tab creation command (/tab)...")
         proc.stdin.write("/tab\n")
         proc.stdin.flush()
         time.sleep(0.5)
             
-        # Step 3: Trigger thread-safe UI state dump
+        # step 3: trigger thread-safe ui state dump
         print("[E2E] Step 3: Requesting thread-safe state dump via magic token...")
         proc.stdin.write("__dump_state__\n")
         proc.stdin.flush()
         time.sleep(1.0)
         
-        # Read stdout queue for output
+        # read stdout queue for output
         stdout_output = []
         while not stdout_queue.empty():
             stdout_output.append(stdout_queue.get_nowait())
         full_stdout = "".join(stdout_output)
         
-        # Extract JSON block between delimiters
+        # extract json block between delimiters
         dump_start = "---STATE_DUMP_START---"
         dump_end = "---STATE_DUMP_END---"
         
@@ -126,15 +126,15 @@ def main():
                 print("[E2E] Dump State parsed successfully:")
                 print(json.dumps(state, indent=2))
                 
-                # Assertions
-                # 1. We expect active tab index to be 1 since a tab was created
+                # assertion
+                # 1. we expect active tab index to be 1 since tab was created
                 if state.get("active_tab") != 1:
                     print(f"[FAIL] Expected active_tab to be 1, got: {state.get('active_tab')}")
                     failed = True
                 else:
                     print("[PASS] Active tab index matches expectation.")
                     
-                # 2. We expect at least 2 tabs in the list
+                # 2. we expect at least 2 tabs in list
                 tabs = state.get("tabs", [])
                 if len(tabs) < 2:
                     print(f"[FAIL] Expected at least 2 tabs, got: {len(tabs)}")
@@ -150,12 +150,12 @@ def main():
             print(f"Stdout was:\n{full_stdout}")
             failed = True
             
-        # Step 4: Write exit command /e
+        # step 4: write exit command /e
         print("[E2E] Step 4: Sending exit command /e...")
         proc.stdin.write("/e\n")
         proc.stdin.flush()
         
-        # Wait for process exit
+        # wait for process exit
         proc.wait(timeout=5)
         
         if proc.returncode != 0:

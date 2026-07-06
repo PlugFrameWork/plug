@@ -9,6 +9,9 @@ CROSS_DIR = os.path.dirname(SCRIPT_DIR)
 ROOT_DIR = os.path.dirname(os.path.dirname(CROSS_DIR))
 RUST_APP_DIR = os.path.join(ROOT_DIR, "plug.app", "rt")
 
+sys.path.append(os.path.join(ROOT_DIR, "tests"))
+from build_utils import compile_wasm_plugin
+
 def load_config():
     config_path = os.path.join(CROSS_DIR, "config", "toolchains.json")
     with open(config_path, "r") as f:
@@ -106,14 +109,8 @@ def build(toolchain_name=None):
                     out_hash = os.path.join(plugin_out_dir, f"{name}.hash")
                     
                     print(f"[WASM] Compiling {name}...")
-                    run_command([
-                        resolved_rustc, "--target", "wasm32-unknown-unknown",
-                        "--crate-type", "cdylib", os.path.join(root, filename),
-                        "-o", out_wasm,
-                        "-C", "opt-level=z",
-                        "-C", "lto=true",
-                        "-C", "strip=symbols"
-                    ], cwd=RUST_APP_DIR, env=env)
+                    from pathlib import Path
+                    compile_wasm_plugin(Path(os.path.join(root, filename)), Path(out_wasm))
                 
                 with open(out_hash, "w") as hf:
                     hf.write(hash_val)

@@ -9,28 +9,28 @@ from pathlib import Path
 
 def setup_plugin_sandbox(plugin_name: str, src_wasm: Path, src_toml: Path, dest_dir: Path):
     import hashlib
-    # Ensure dest_dir exists
+    # ensure dest_dir exists
     dest_dir.mkdir(parents=True, exist_ok=True)
     
-    # Hash value for test
+    # hash value for test
     hash_val = f"test_{plugin_name}_hash"
     
-    # Target file paths
+    # target file path
     hash_file = dest_dir / f"{plugin_name}.hash"
     wasm_file = dest_dir / f"{plugin_name}.{hash_val}"
     toml_file = dest_dir / f"{plugin_name}.toml"
     integrity_file = dest_dir / f"{plugin_name}.integrity"
     
-    # Write hash file
+    # write hash file
     with open(hash_file, "w", encoding="utf-8") as f:
         f.write(hash_val)
         
-    # Copy wasm and toml files
+    # copy wasm and toml file
     shutil.copy2(src_wasm, wasm_file)
     if src_toml.resolve() != toml_file.resolve():
         shutil.copy2(src_toml, toml_file)
 
-    # Compute SHA-256 and write integrity file
+    # compute sha-256 and write integrity file
     wasm_bytes = wasm_file.read_bytes()
     sha = hashlib.sha256(wasm_bytes).hexdigest()
     with open(integrity_file, "w", encoding="utf-8") as f:
@@ -45,7 +45,7 @@ def main():
         
     print("[SANDBOX] Running Sandbox Rules integration tests...")
     
-    # 1. Load env context
+    # 1. load env context
     env_ctx = {}
     if "ENV_CONTEXT" in os.environ:
         try:
@@ -72,7 +72,7 @@ def main():
         release_dir = project_root / "plug.cross" / "release" / (arch if system == "Windows" else ("x86_64" if arch == "x64" else arch))
         target_bin = str((release_dir / binary_name).resolve())
         
-    # Determine the plugin directory to copy mock files to
+    # determine plugin directory to copy mock file to
     system = platform.system()
     if system == "Windows":
         sys_drive = os.environ.get("SystemDrive", "C:")
@@ -82,7 +82,7 @@ def main():
     else:
         plug_dir = Path("/.plug/plugins")
         
-    # Backup existing plugin folder if it exists
+    # backup existing plugin folder if it exists
     backup_dir = plug_dir.parent / "plugins_backup"
     if plug_dir.exists():
         print(f"[SANDBOX] Backing up existing plugin folder to {backup_dir}...")
@@ -92,7 +92,7 @@ def main():
         
     plug_dir.mkdir(parents=True, exist_ok=True)
     
-    # Setup Popen creation flags to run headless
+    # setup popen creation flags to run headless
     startupinfo = None
     if system == "Windows":
         startupinfo = subprocess.STARTUPINFO()
@@ -107,7 +107,7 @@ def main():
     failed = False
     
     try:
-        # TEST CASE 1: ok_plugin should run and add a tab normally (positive baseline)
+        # test case 1: ok_plugin should run and add tab normally (positive baseline)
         print("\n[SANDBOX] Test Case 1: ok_plugin baseline check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
@@ -144,7 +144,7 @@ def main():
         else:
             print("[PASS] ok_plugin baseline test passed successfully.")
 
-        # TEST CASE 2: rogue_plugin should be rejected at load-time (unauthorized imports)
+        # test case 2: rogue_plugin should be rejected at load-time (unauthorized imports)
         print("\n[SANDBOX] Test Case 2: rogue_plugin load-time imports rejection check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
@@ -169,8 +169,8 @@ def main():
         )
         stdout, stderr = proc.communicate(input="/e\n", timeout=10)
         
-        # Verify stderr contains load-time validation rejection notice
-        # (e.g. "[WASM] Failed to load ...: [SECURITY] Unauthorized import: main_w_add_tab")
+        # verify stderr contain load-time validation rejection notice
+        # (e.g. "[wasm] failed to load ...: [security] unauthorized import: main_w_add_tab")
         if "Unauthorized import" in stderr or "Unauthorized import" in stdout:
             print("[PASS] rogue_plugin load-time imports rejection verified successfully.")
         else:
@@ -178,7 +178,7 @@ def main():
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 3: rogue_plugin_runtime should be trapped at runtime (unauthorized call)
+        # test case 3: rogue_plugin_runtime should be trapped at runtime (unauthorized call)
         print("\n[SANDBOX] Test Case 3: rogue_plugin_runtime runtime sandbox trap check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
@@ -208,12 +208,12 @@ def main():
         proc.stdin.flush()
         stdout, stderr = proc.communicate(timeout=10)
         
-        # Verify stdout/stderr contains runtime trap errors for both sandbox violations:
-        #   - "Blocked execution of unauthorized binary" (path not in allowlist)
-        #   - "Blocked execution of banned binary" (LOLBin/interpreter ban, plugin_mgr.rs)
-        # NOTE: these string literals are coupled to plugin_mgr.rs log messages.
-        # If the messages change there, update this assertion to match — do NOT add
-        # OR-fallbacks to accept old strings; force a conscious sync instead.
+        # verify stdout/stderr contain runtime trap eror for both sandbox violations:
+        #   - "blocked execusion of unauthorized binary" (path not in allowlist)
+        #   - "blocked execusion of banned binary" (lolbin/interpreter ban, plugin_mgr.rs)
+        # note: these string literals are coupled to plugin_mgr.rs log messages
+        # if messages change there, update this assertion to match — do not add
+        # or-fallbacks to accept old strings; force conscious sync instead
         has_unauth_block = (
             "Blocked execution of unauthorized binary" in stderr
             or "Blocked execution of unauthorized binary" in stdout
@@ -231,7 +231,7 @@ def main():
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 4: Integrity mismatch (modified wasm file bytes after installation)
+        # test case 4: integrity mismatch (modified wasm file bytes after installation)
         print("\n[SANDBOX] Test Case 4: ok_plugin integrity mismatch check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
@@ -243,7 +243,7 @@ def main():
             plug_dir
         )
         
-        # Modify ok_plugin wasm bytes to cause mismatch
+        # modify ok_plugin wasm bytes to cause mismatch
         wasm_file = list(plug_dir.glob("ok_plugin.test_ok_plugin_hash"))[0]
         with open(wasm_file, "r+b") as f:
             f.seek(0)
@@ -268,29 +268,29 @@ def main():
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 5: Migration and post-migration bypass block (Phase 4.3 Case A and B)
+        # test case 5: migration and post-migration bypass block (phase 4.3 case and b)
         print("\n[SANDBOX] Test Case 5: Global migration and bypass blocking...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
         
-        # Determine global migration marker path
+        # determine global migration marker path
         marker_path = plug_dir.parent / ".integrity_migration_v1_done"
         if marker_path.exists():
             marker_path.unlink()
             
-        # Set up a plugin WITHOUT .integrity file on disk
+        # set up plugin without .integrity file on disk
         setup_plugin_sandbox(
             "ok_plugin",
             fixtures_build / "ok_plugin.wasm",
             manifests_dir / "ok_plugin.toml",
             plug_dir
         )
-        # Delete the .integrity file so we simulate a pre-existing plugin before patch
+        # delete .integrity file so we simulate pre-existing plugin before patch
         integrity_file = plug_dir / "ok_plugin.integrity"
         if integrity_file.exists():
             integrity_file.unlink()
             
-        # Run plug. It should perform migration, create the .integrity file, and create the marker.
+        # run plug. it should perform migration, create .integrity file, and create marker
         proc = subprocess.Popen(
             [target_bin],
             stdin=subprocess.PIPE,
@@ -304,15 +304,15 @@ def main():
         )
         stdout, stderr = proc.communicate(input="/e\n", timeout=10)
         
-        # Verify migration occurred (marker created, integrity file created)
+        # verify migration occurred (marker created, integrity file created)
         if marker_path.exists() and integrity_file.exists():
             print("[PASS] Global migration backfilled integrity file and created marker successfully.")
         else:
             print("[FAIL] Global migration did not execute or create expected sidecars!")
             failed = True
             
-        # Case B: Now with the marker present, delete the .integrity file and try loading again.
-        # This simulates an attacker deleting the integrity sidecar.
+        # case b: now with marker present, delete .integrity file and try loading again
+        # this simulates attacker deleting integrity sidecar
         if integrity_file.exists():
             integrity_file.unlink()
             
@@ -329,7 +329,7 @@ def main():
         )
         stdout, stderr = proc.communicate(input="/e\n", timeout=10)
         
-        # It must be rejected with "Missing integrity sidecar"
+        # it must be rejected with "missing integrity sidecar"
         if "Missing integrity sidecar" in stderr or "Missing integrity sidecar" in stdout:
             print("[PASS] Post-migration bypass block (deleting sidecar) verified successfully.")
         else:
@@ -337,22 +337,22 @@ def main():
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 6: Trusted plugin bypass checks (Case C)
+        # test case 6: trusted plugin bypass check (case c)
         print("\n[SANDBOX] Test Case 6: Trusted plugin bypass integrity file check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
         
-        # Determine global migration marker path
+        # determine global migration marker path
         marker_path = plug_dir.parent / ".integrity_migration_v1_done"
         if not marker_path.exists():
             with open(marker_path, "w") as f:
                 f.write("v1_done")
                 
-        # Find the official pTerm wasm file from the freshly built workspace plugins directory
+        # find official pterm wasm file from freshly built workspace plugin directory
         pterm_src = list((project_root / "plugins" / "pTerm").glob("pTerm.*"))
         pterm_wasm = [p for p in pterm_src if p.suffix not in (".hash", ".integrity", ".tmp")][0]
         
-        # Write pTerm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+        # write pterm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
         with open(pterm_toml_path, "w", encoding="utf-8") as f:
             f.write("""[plugin]
@@ -363,19 +363,19 @@ api_version = "0.1.0a"
 permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
-        # Setup pTerm plugin in sandbox without .integrity file
+        # setup pterm plugin in sandbox without .integrity file
         setup_plugin_sandbox(
             "pTerm",
             pterm_wasm,
             pterm_toml_path,
             plug_dir
         )
-        # Delete pTerm's .integrity file
+        # delete pterm's .integrity file
         pterm_integrity = plug_dir / "pTerm.integrity"
         if pterm_integrity.exists():
             pterm_integrity.unlink()
             
-        # Run plug. It should load successfully even without the .integrity file.
+        # run plug. it should load succesfully even without .integrity file
         proc = subprocess.Popen(
             [target_bin],
             stdin=subprocess.PIPE,
@@ -388,7 +388,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             env={**os.environ, "PLUG_HEADLESS": "1"}
         )
         
-        # Send /cmd dir command to execute via pTerm and verify output
+        # send /cmd dir command to execute via pterm and verify output
         proc.stdin.write("/cmd dir\n")
         proc.stdin.flush()
         import time
@@ -398,14 +398,14 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
         proc.stdin.flush()
         stdout, stderr = proc.communicate(timeout=10)
         
-        # Check that it didn't fail to load pTerm:
+        # check that it didn't fail to load pterm:
         has_load_fail = (
             "Failed to load pTerm" in stderr or "Failed to load pTerm" in stdout or
             "Missing integrity sidecar for pTerm" in stderr or "Missing integrity sidecar for pTerm" in stdout or
             "Invalid manifest format" in stderr or "Missing manifest entry" in stderr
         )
         
-        # Check if the execution output contains typical repository files/folders (dir command results)
+        # check if execusion output contain typical repository file/folders (dir command results)
         has_execution_output = "test_sandbox_rules.py" in stdout or "Cargo.toml" in stdout or "plugins" in stdout or "plug.app" in stdout
         
         if not has_load_fail and has_execution_output:
@@ -415,17 +415,17 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 7: Tampered trusted plugin block (Case D)
+        # test case 7: tampered trusted plugin block (case d)
         print("\n[SANDBOX] Test Case 7: Tampered trusted plugin block check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
         
-        # With the global marker present
+        # with global marker present
         if not marker_path.exists():
             with open(marker_path, "w") as f:
                 f.write("v1_done")
                 
-        # Write pTerm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+        # write pterm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
         with open(pterm_toml_path, "w", encoding="utf-8") as f:
             f.write("""[plugin]
@@ -436,19 +436,19 @@ api_version = "0.1.0a"
 permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
-        # Setup pTerm in sandbox but using corrupted/tampered bytes (using ok_plugin.wasm)
+        # setup pterm in sandbox but using corrupted/tampered bytes (using ok_plugin.wasm)
         setup_plugin_sandbox(
             "pTerm",
             fixtures_build / "ok_plugin.wasm", # mismatched hash
             pterm_toml_path,
             plug_dir
         )
-        # Delete pTerm's .integrity file
+        # delete pterm's .integrity file
         pterm_integrity = plug_dir / "pTerm.integrity"
         if pterm_integrity.exists():
             pterm_integrity.unlink()
             
-        # Run plug. It should fail-closed (blocked completely).
+        # run plug. it should fail-closed (blocked completely)
         proc = subprocess.Popen(
             [target_bin],
             stdin=subprocess.PIPE,
@@ -462,7 +462,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
         )
         stdout, stderr = proc.communicate(input="/e\n", timeout=10)
         
-        # Verify it is blocked with "Missing integrity sidecar"
+        # verify it is blocked with "missing integrity sidecar"
         if "Missing integrity sidecar for pTerm" in stderr or "Missing integrity sidecar for pTerm" in stdout:
             print("[PASS] Tampered trusted plugin failed-closed (blocked) successfully.")
         else:
@@ -470,26 +470,26 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
-        # TEST CASE 8/9/10: E2E Registry download flow and downgrade attack checks
+        # test case 8/9/10: e2e registry download flow and downgrade attack check
         print("\n[SANDBOX] Test Cases 8, 9, 10: E2E Registry download & security checks...")
         import http.server
         import socketserver
         import threading
         
-        # We need a directory to serve files from
+        # we need directory to serve file from
         mock_web_dir = Path("tests/.artifacts/mock_web")
         if mock_web_dir.exists():
             shutil.rmtree(mock_web_dir)
         mock_web_dir.mkdir(parents=True)
         
-        # Define the handler serving from mock_web_dir
+        # define handler serving from mock_web_dir
         class QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=str(mock_web_dir.resolve()), **kwargs)
             def log_message(self, format, *args):
                 pass # suppress printing to stdout
                 
-        # Start the server on an ephemeral port
+        # start server on ephemeral port
         PORT = 8081
         handler = QuietHTTPRequestHandler
         for p in range(8081, 8099):
@@ -505,16 +505,16 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
         server_thread.start()
         
         try:
-            # Let's write the mock pTerm.wasm file
+            # let's write mock pterm.wasm file
             mock_wasm_content = b"mock WASM binary content for pTerm"
             mock_wasm_hash = hashlib.sha256(mock_wasm_content).hexdigest()
             
-            # The client expects to fetch plugins/plugin.toml
-            # and plugins/pTerm (which is the WASM file)
+            # client expect to fetch plugin/plugin.toml
+            # and plugin/pterm (which is wasm file)
             plugins_web_dir = mock_web_dir / "plugins"
             plugins_web_dir.mkdir()
             
-            # Write plugin.toml (manifest)
+            # write plugin.toml (manifest)
             with open(plugins_web_dir / "plugin.toml", "w", encoding="utf-8") as f:
                 f.write("""[plugin]
 name = "pTerm"
@@ -524,13 +524,13 @@ api_version = "0.1.0a"
 permissions = ["host_exec"]
 """)
             
-            # Write the WASM file inside a pTerm subfolder to match new URL pattern
+            # write wasm file inside pterm subfolder to match new url pattern
             pterm_web_dir = plugins_web_dir / "pTerm"
             pterm_web_dir.mkdir()
             with open(pterm_web_dir / "pTerm", "wb") as f:
                 f.write(mock_wasm_content)
                 
-            # Write registry file pluglists.json
+            # write registry file pluglists.json
             registry_data = {
                 "repo_version": "1.0.0",
                 "plugins": [
@@ -547,7 +547,7 @@ permissions = ["host_exec"]
             with open(mock_web_dir / "pluglists.json", "w", encoding="utf-8") as f:
                 json.dump(registry_data, f)
                 
-            # Configure environment variables to point to this mock server
+            # configure environment variable to point to this mock server
             test_env = {
                 **os.environ,
                 "PLUG_HEADLESS": "1",
@@ -555,7 +555,7 @@ permissions = ["host_exec"]
                 "PLUG_WASM_BASE_URL": f"http://127.0.0.1:{PORT}/plugins"
             }
             
-            # Local helper to run registry query and download in the SAME running process session
+            # local helper to run registry query and download in same running process session
             def run_interactive_install(target_bin, env, use_wrong_hash=False):
                 p = subprocess.Popen(
                     [target_bin],
@@ -569,15 +569,15 @@ permissions = ["host_exec"]
                     env=env
                 )
                 
-                # 1. Query registry to populate session list
+                # 1. query registry to populate session list
                 p.stdin.write("/plug*\n")
                 p.stdin.flush()
                 
-                # Read stdout line by line until we find the session hash
+                # read stdout line by line until we find session hash
                 session_hash = None
                 import re
                 
-                # Consume lines to avoid block
+                # consume lines to avoid block
                 lines = []
                 for _ in range(50):
                     line = p.stdout.readline()
@@ -594,12 +594,12 @@ permissions = ["host_exec"]
                     stdout_rem, stderr_rem = p.communicate()
                     return False, f"Session hash not found in registry. Stdout:\n{''.join(lines)}\n{stdout_rem}\nStderr:\n{stderr_rem}"
                 
-                # 2. Install the plugin using either correct or modified hash
+                # 2. install plugin using either correct or modified hash
                 install_hash = "wrong_hash_12345" if use_wrong_hash else session_hash
                 p.stdin.write(f"/plug {install_hash}\n")
                 p.stdin.flush()
                 
-                # 3. Exit the session
+                # 3. exit session
                 p.stdin.write("/e\n")
                 p.stdin.flush()
                 
@@ -607,7 +607,7 @@ permissions = ["host_exec"]
                 stdout_full = "".join(lines) + stdout_rem
                 return True, (stdout_full, stderr_rem)
 
-            # Sub-test 8: Successful installation with matching hash
+            # sub-test 8: successful installation with matching hash
             print("  - Test Case 8: Successful installation with matching hash...")
             if plug_dir.exists():
                 shutil.rmtree(plug_dir)
@@ -626,15 +626,15 @@ permissions = ["host_exec"]
                 print(f"    [FAIL] E2E interactive run failed: {res}")
                 failed = True
                 
-            # Sub-test 9: Tampered hash mismatch failure
+            # sub-test 9: tampered hash mismatch failure
             print("  - Test Case 9: Prevent tampered hash mismatch installation (fail-closed)...")
-            # Modify pluglists.json to have a mismatched hash
+            # modify pluglists.json to have mismatched hash
             registry_data["plugins"][0]["sha256"] = "wrong_hash_12345"
             with open(mock_web_dir / "pluglists.json", "w", encoding="utf-8") as f:
                 json.dump(registry_data, f)
                 
-            # Run installation. Since we ask it to install the session_hash, but the registry hash has been tampered,
-            # it should verify and fail-closed due to hash mismatch.
+            # run installation. since we ask it to install session_hash, but registry hash has been tampered,
+            # it should verify and fail-closed due to hash mismatch
             ok, res = run_interactive_install(target_bin, test_env, use_wrong_hash=False)
             if ok:
                 stdout, stderr = res
@@ -648,9 +648,9 @@ permissions = ["host_exec"]
                 print(f"    [FAIL] E2E interactive run failed for tampered case: {res}")
                 failed = True
                 
-            # Sub-test 10: Missing hash in registry block
+            # sub-test 10: missing hash in registry block
             print("  - Test Case 10: Prevent missing hash in registry installation (fail-closed)...")
-            # Modify pluglists.json to completely omit the sha256 key
+            # modify pluglists.json to completely omit sha256 key
             del registry_data["plugins"][0]["sha256"]
             with open(mock_web_dir / "pluglists.json", "w", encoding="utf-8") as f:
                 json.dump(registry_data, f)
@@ -669,17 +669,17 @@ permissions = ["host_exec"]
                 failed = True
 
         finally:
-            # Stop the HTTP server
+            # stop http server
             httpd.shutdown()
             httpd.server_close()
             server_thread.join()
-            # Clean up temp folder
+            # clean up temp folder
             if mock_web_dir.exists():
                 shutil.rmtree(mock_web_dir)
 
 
     finally:
-        # Restore backup
+        # restore backup
         if plug_dir.exists():
             shutil.rmtree(plug_dir)
         if backup_dir.exists():

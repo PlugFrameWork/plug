@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-# Minimum required versions
+# minimum required versions
 MIN_CARGO_VERSION = "1.70.0"
 
 def get_cargo_version():
@@ -36,7 +36,7 @@ def clean_orphans(target_bin_path: Path):
     target_abs = str(target_bin_path.resolve()).replace("\\", "/").lower()
     
     if system == "Windows":
-        # PowerShell script with try/catch to safely get Paths and PIDs
+        # powershell script with try/catch to safely get path and pids
         ps_script = (
             "Get-Process plug -ErrorAction SilentlyContinue | ForEach-Object { "
             "  try { "
@@ -70,7 +70,7 @@ def clean_orphans(target_bin_path: Path):
                     if exe_path == target_abs:
                         pid = int(pid_dir.name)
                         print(f"[PREFLIGHT] Terminating orphaned process {pid} ({exe_path})")
-                        os.kill(pid, 15) # SIGTERM
+                        os.kill(pid, 15) # sigterm
             except Exception:
                 pass
 
@@ -81,7 +81,7 @@ def run_preflight(project_root: Path) -> dict:
     
     system = platform.system()
 
-    # Resolve binary name dynamically from toolchains.json active arch
+    # resolve binary name dynamically from toolchains.json active arch
     toolchains_cfg = project_root / "plug.cross" / "windows" / "config" / "toolchains.json"
     arch = "x64"  # safe default
     if toolchains_cfg.exists():
@@ -97,20 +97,20 @@ def run_preflight(project_root: Path) -> dict:
         binary_name = f"plug-{arch}.exe"
         release_subdir = arch
     else:
-        # Linux uses arch from toolchains.json; map x64→x86_64 for directory convention
+        # linux uses arch from toolchains.json; map x64→x86_64 for directory convention
         dir_arch = "x86_64" if arch == "x64" else arch
         binary_name = f"plug-{arch}"
         release_subdir = dir_arch
 
-    # Resolve the target build binary path in the release directory
+    # resolve target build binary path in release directory
     release_dir = project_root / "plug.cross" / "release" / release_subdir
     target_bin = release_dir / binary_name
 
     
-    # 1. Clean orphans
+    # 1. clean orphans
     clean_orphans(target_bin)
     
-    # 2. Check Cargo version
+    # 2. check cargo version
     cargo_ver = get_cargo_version()
     if not cargo_ver:
         print("[PREFLIGHT-ERROR] Cargo compiler is not installed or not in PATH.")
@@ -118,10 +118,10 @@ def run_preflight(project_root: Path) -> dict:
         
     print(f"[PREFLIGHT] Cargo version: {cargo_ver} (Min required: {MIN_CARGO_VERSION})")
     
-    # 3. Check WASM target
+    # 3. check wasm target
     check_wasm_target()
     
-    # 4. Generate Environment Context
+    # 4. generate environment context
     context = {
         "os": system,
         "binary_name": binary_name,
