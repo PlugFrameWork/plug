@@ -2,11 +2,11 @@ use std::time::Duration;
 use ureq;
 use serde_json::Value;
 
-/// Cấu hình mặc định cho các yêu cầu mạng
+/// default timeout for net reqests
 const DEFAULT_TIMEOUT: u64 = 30;
 const USER_AGENT: &str = "plug-runtime/1.0.0";
 
-/// Thực hiện một yêu cầu GET và trả về nội dung dạng String
+/// execute get reqest and return raw string
 pub fn http_get(url: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT))
@@ -21,9 +21,9 @@ pub fn http_get(url: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to read response body: {}", e))
 }
 
-/// Thực hiện một yêu cầu POST với payload JSON
+/// execute post reqest with json body
 pub fn http_post_json(url: &str, json_payload: &str) -> Result<String, String> {
-    // Thử parse JSON trước để đảm bảo dữ liệu hợp lệ
+    // check input json format validity
     let body: Value = serde_json::from_str(json_payload)
         .map_err(|e| format!("Invalid JSON input: {}", e))?;
 
@@ -41,9 +41,9 @@ pub fn http_post_json(url: &str, json_payload: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to read response body: {}", e))
 }
 
-/// Kiểm tra trạng thái kết nối internet (tùy chọn)
+/// check if internet is online
 pub fn is_online() -> bool {
-    // Thử ping nhẹ đến Google DNS
+    // quick check using Google DNS
     ureq::get("http://clients3.google.com/generate_204")
         .timeout(Duration::from_secs(3))
         .call()

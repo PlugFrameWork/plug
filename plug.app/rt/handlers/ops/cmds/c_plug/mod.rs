@@ -105,7 +105,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
 
             let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&wasm_bytes);
 
-            // Phase 2.3: Verify against registry-pinned hash (fail-closed on missing or mismatch)
+            // phase 2.3: verify against registry-pinned hash (fail-closed on missing or mismatch)
             if registry_sha256.is_empty() {
                 print_error(&format!("[SECURITY] Missing pinned hash in registry for plugin: {}. Aborting installation.", clean_name));
                 let _ = fs::remove_file(&tmp_wasm);
@@ -120,7 +120,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
                 return -1;
             }
             
-            // Rename files atomically
+            // rename files atomically
             if let Err(e) = fs::rename(&tmp_wasm, &dest_wasm) {
                 print_error(&format!("Failed to finalize WASM file: {}", e));
                 let _ = fs::remove_file(&tmp_wasm);

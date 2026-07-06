@@ -12,10 +12,8 @@
 ## Features
 
 - **Sandboxed WASM Runtime**: Isolated memory execution using the Wasmer compiler. Note that the sandbox confines the plugin's memory space and relies on a host FFI permission gate for system capabilities.
-- **Cryptographic Integrity & Trust Tiers**: Confirms plugin authenticity using load-time single-read verification against atomic `.integrity` sidecars. Core system plugins are checked against compile-time hardcoded SHA-256 hash arrays.
 - **Registry Hash Pinning**: Mitigates Man-in-the-Middle (MITM) attacks by verifying remote plugin downloads against SHA-256 hashes pinned in the online registry.
 - **Granular Permissions Model**: Checks plugin FFI import access (e.g., tab management or host execution) against manifest declarations (`plugin.toml`).
-- **Host Execution Gate**: Standard plugins executing native processes are restricted by canonical path allowlists and argument regex matching. Trusted plugins bypass these filters to enable terminal environments.
 - **Multitab Desktop Shell**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
 - **Cross-Platform Native UI**: Compiles to Windows (Win32 GDI) and Linux (GTK4) with zero browser engine footprint.
 

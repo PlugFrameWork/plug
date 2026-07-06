@@ -40,8 +40,8 @@ pub extern "C" fn c_cleanup() {
     RUNNING.store(false, Ordering::SeqCst);
 }
 
-/// Must be called by the UI layer BEFORE erasing a tab from g_tabs.
-/// Unloads any WASM plugin that was running in that tab.
+/// must be called by the UI layer before erasing a tab from g_tabs.
+/// unloads any WASM plugin that was running in that tab.
 /// tab_idx: the 0-based index of the tab about to be closed.
 #[no_mangle]
 pub extern "C" fn c_on_tab_close(tab_idx: i32) {

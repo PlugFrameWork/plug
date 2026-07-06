@@ -178,7 +178,7 @@ pub fn init_plugins(plugins_dir: &str) {
     let dest_root = path.parent().unwrap_or(path);
     let marker_path = dest_root.join(".integrity_migration_v1_done");
 
-    // Phase 1.5: One-Time Global Migration Check
+    // phase 1.5: one-time global migration check
     if !marker_path.exists() {
         print_info("[SECURITY-WARNING] Global integrity migration started. Backfilling plugin .integrity files...");
         for p in &plug_files {
@@ -205,7 +205,7 @@ pub fn init_plugins(plugins_dir: &str) {
             }
         }
 
-        // Write marker atomically
+        // write marker atomically
         if let Err(e) = crate::ops::utils::write_atomic(&marker_path, b"v1_done") {
             print_error(&format!("Failed to write global migration marker: {}", e));
         } else {
@@ -293,7 +293,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
     let mut store = Store::new(Cranelift::default());
     let module = Module::new(&store, &wasm_bytes)?;
 
-    // Verify imported functions against manifest permission declarations
+    // verify imported function against manifest permission declaration
     for import in module.imports() {
         if import.module() == "env" {
             let name = import.name();
@@ -413,7 +413,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                         let canonical_exe = if env_data.is_trusted {
                             resolve_binary_path(&exe).unwrap_or_else(|| std::path::PathBuf::from(&exe))
                         } else {
-                            // B1. Resolve absolute canonical path
+                            // b1. resolve absolute canonical path
                             match resolve_binary_path(&exe) {
                                 Some(p) => p,
                                 None => {
@@ -424,19 +424,19 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                         };
 
                         if !env_data.is_trusted {
-                            // B2. Interpreter Ban Check
+                            // b2. interpreter ban check
                             if let Some(file_name) = canonical_exe.file_name().and_then(|f| f.to_str()) {
                                 let f_lc = file_name.to_lowercase();
-                                // Interpreters and LOLBins that can execute arbitrary code
-                                // NOTE: This list covers common cases but is NOT exhaustive.
-                                // See docs/SECURITY.md for known limitations.
+                                // interpreter and lolbins that can execute arbitrary code
+                                // note: this list covers common cases but is not exhaustive.
+                                // see docs/security.md for known limitation.
                                 let banned = [
-                                    // Shells
+                                    // shell
                                     "cmd.exe", "cmd",
                                     "powershell.exe", "powershell",
                                     "pwsh.exe", "pwsh",
                                     "bash", "sh", "zsh", "fish",
-                                    // Script interpreters
+                                    // script interpreter
                                     "python.exe", "python", "python3", "python3.exe",
                                     "perl", "perl.exe",
                                     "ruby", "ruby.exe",
@@ -444,21 +444,21 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                                     "wscript.exe", "wscript",
                                     "cscript.exe", "cscript",
                                     "mshta.exe", "mshta",
-                                    // Code execution LOLBins
+                                    // code execution lolbins
                                     "rundll32.exe", "rundll32",
                                     "regsvr32.exe", "regsvr32",
                                     "msbuild.exe", "msbuild",
                                     "installutil.exe", "installutil",
                                 ];
                                 if banned.contains(&f_lc.as_str()) {
-                                    // TEST COUPLING: this message is asserted in tests/integration/test_sandbox_rules.py
-                                    // (has_banned_block check). Rename here → must update assertion string there.
+                                    // test coupling: this message is asserted in tests/integration/test_sandbox_rules.py
+                                    // (has_banned_block check). rename here → must update assertion string there.
                                     print_error(&format!("[SECURITY] Blocked execution of banned binary: {}", file_name));
                                     return;
                                 }
                             }
                             
-                            // B3. Allowlist & Regex Check
+                            // b3. allowlist & regex check
                             let mut allowed = false;
                             let args_string = parsed_args.join(" ");
                             for entry in &env_data.allowed_commands {
@@ -474,12 +474,12 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                                 }
                             }
                             
-                            // Replaced naive blacklist (rm/del/format substring match) with
+                            // replaced naive blacklist (rm/del/format substring match) with
                             // canonical-path allowlist + argv-based exec (no shell interpretation).
-                            // See docs/SECURITY.md for threat model and rationale.
+                            // see docs/security.md for threat model and rationale.
                             if !allowed {
-                                // TEST COUPLING: this message is asserted in tests/integration/test_sandbox_rules.py
-                                // (has_unauth_block check). Rename here → must update assertion string there.
+                                // test coupling: this message is asserted in tests/integration/test_sandbox_rules.py
+                                // (has_unauth_block check). rename here → must update assertion string there.
                                 print_error(&format!("[SECURITY] Blocked execution of unauthorized binary: {}", canonical_exe.display()));
                                 return;
                             }
@@ -772,9 +772,9 @@ pub fn get_loaded_plugins_info() -> Vec<(String, String, String)> {
     plugins.iter().filter(|p| p.name != "api").map(|p| (p.name.clone(), p.hash.clone(), p.manifest.version.clone())).collect()
 }
 
-/// Called when a UI tab is closed. Drops any plugin instance that was
+/// called when a UI tab is closed. drops any plugin instance that was
 /// running inside that tab so we don't leak WASM memory or get stale
-/// callbacks firing into a now-deleted tab index.
+/// callback firing into a now-deleted tab index.
 pub fn unload_plugin_by_tab(tab_idx: i32) {
     use crate::ops::host::get_tab_owner;
     let owner = match get_tab_owner(tab_idx) {
