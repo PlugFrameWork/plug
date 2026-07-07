@@ -9,6 +9,8 @@ if(PLUG_ENABLE_HEADLESS_MODE)
     add_compile_definitions(PLUG_ENABLE_HEADLESS_MODE)
 endif()
 
+option(HIDE_CONSOLE "Hide console window" OFF)
+
 set(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(APP_DIR "${ROOT_DIR}/plug.app")
 set(COMMON_DIR "${APP_DIR}/cmn")

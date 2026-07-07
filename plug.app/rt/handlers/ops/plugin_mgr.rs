@@ -99,6 +99,8 @@ struct Env {
 }
 
 static PLUGINS: Lazy<Mutex<Vec<Plugin>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static PLUGIN_EXEC_LOCKS: Lazy<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
 static CURRENT_ARGS: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 static TAB_CWDS: Lazy<Mutex<std::collections::HashMap<i32, String>>> = Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
 static TAB_LABELS: Lazy<Mutex<std::collections::HashMap<i32, String>>> = Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
@@ -146,6 +148,30 @@ impl SimpleThreadPool {
 
 static POOL: Lazy<SimpleThreadPool> = Lazy::new(|| SimpleThreadPool::new(4));
 
+fn plugin_exec_lock(name: &str) -> Arc<Mutex<()>> {
+    let mut locks = PLUGIN_EXEC_LOCKS.lock().unwrap();
+    locks
+        .entry(name.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+fn import_requires_permission(name: &str) -> Option<&'static str> {
+    match name {
+        "host_exec" => Some("host_exec"),
+        "host_add_tab" => Some("host_add_tab"),
+        "host_set_tab_owner" => Some("host_set_tab_owner"),
+        "host_get_tab_label" => Some("host_get_tab_label"),
+        "get_env" => Some("get_env"),
+        "net_post" => Some("net_post"),
+        _ => None,
+    }
+}
+
+fn has_permission(permissions: &[String], required: &str) -> bool {
+    permissions.iter().any(|p| p == required)
+}
+
 pub fn init_plugins(plugins_dir: &str) {
     let path = Path::new(plugins_dir);
     
@@ -178,7 +204,7 @@ pub fn init_plugins(plugins_dir: &str) {
     let dest_root = path.parent().unwrap_or(path);
     let marker_path = dest_root.join(".integrity_migration_v1_done");
 
-    // phase 1.5: one-time global migration check
+    // phase 1.5 one-time global migration check
     if !marker_path.exists() {
         print_info("[SECURITY-WARNING] Global integrity migration started. Backfilling plugin .integrity files...");
         for p in &plug_files {
@@ -297,18 +323,10 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
     for import in module.imports() {
         if import.module() == "env" {
             let name = import.name();
-            // print_info, print_error, get_args, get_env are always allowed
-            if name == "host_exec" && !manifest.permissions.iter().any(|p| p == "host_exec") {
-                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
-            }
-            if name == "main_w_add_tab" && !manifest.permissions.iter().any(|p| p == "main_w_add_tab") {
-                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
-            }
-            if name == "host_set_tab_owner" && !manifest.permissions.iter().any(|p| p == "host_set_tab_owner") {
-                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
-            }
-            if name == "host_get_tab_label" && !manifest.permissions.iter().any(|p| p == "host_get_tab_label") {
-                return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+            if let Some(required) = import_requires_permission(name) {
+                if !has_permission(&manifest.permissions, required) {
+                    return Err(format!("[SECURITY] Unauthorized import: {}", name).into());
+                }
             }
         }
     }
@@ -435,7 +453,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                                     "cmd.exe", "cmd",
                                     "powershell.exe", "powershell",
                                     "pwsh.exe", "pwsh",
-                                    "bash", "sh", "zsh", "fish",
+                                    "bash", "sh", "zsh", "fish", "dash",
                                     // script interpreter
                                     "python.exe", "python", "python3", "python3.exe",
                                     "perl", "perl.exe",
@@ -522,6 +540,10 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             }),
             "get_env" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, name_ptr: i32, name_len: i32, resp_ptr: i32, resp_max_len: i32| {
                 let (env_data, store) = env.data_and_store_mut();
+                if !has_permission(&env_data.permissions, "get_env") {
+                    print_error("[SECURITY] Plugin attempted to call get_env without permission");
+                    return;
+                }
                 if let Some(memory) = &env_data.memory {
                     let view = memory.view(&store);
                     let mut name_buf = vec![0u8; name_len as usize];
@@ -534,7 +556,10 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                     }
                 }
             }),
-            "main_w_add_tab" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, ptr: i32, len: i32| {
+            "host_get_platform" => Function::new_typed_with_env(&mut store, &env, |mut _env: FunctionEnvMut<Env>| -> i32 {
+                if cfg!(windows) { 0 } else { 1 }
+            }),
+            "host_add_tab" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, ptr: i32, len: i32| {
                 let (env_data, store) = env.data_and_store_mut();
                 if let Some(memory) = &env_data.memory {
                     let view = memory.view(&store);
@@ -581,6 +606,10 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             }),
             "net_post" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, url_ptr: i32, url_len: i32, body_ptr: i32, body_len: i32, resp_ptr: i32, resp_max_len: i32| {
                 let (env_data, store) = env.data_and_store_mut();
+                if !has_permission(&env_data.permissions, "net_post") {
+                    print_error("[SECURITY] Plugin attempted to call net_post without permission");
+                    return;
+                }
                 if let Some(memory) = &env_data.memory {
                     let view = memory.view(&store);
                     let mut url_buf = vec![0u8; url_len as usize];
@@ -815,33 +844,39 @@ fn dispatch_call_plugin_entry(plugin: &mut Plugin) -> bool {
 pub fn dispatch_plugin_cmd(cmd: &str, args: &str) -> bool {
     let args_str = args.to_string();
     let cmd_str = cmd.to_string();
-    let idx = {
+    {
         let plugins = PLUGINS.lock().unwrap();
-        match plugins.iter().position(|p| p.name == cmd_str) {
-            Some(i) => i,
-            None => return false,
+        if !plugins.iter().any(|p| p.name == cmd_str) {
+            return false;
         }
-    };
+    }
 
+    let exec_lock = plugin_exec_lock(&cmd_str);
     set_prompt_visibility(false);
 
     POOL.execute(move || {
+        let _guard = exec_lock.lock().unwrap();
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let mut plugin = {
-                let mut plugins = PLUGINS.lock().unwrap();
-                if idx < plugins.len() { plugins.remove(idx) }
-                else { set_prompt_visibility(true); return; }
-            };
-
             let start_time = std::time::Instant::now();
             let label = cmd_str.to_uppercase();
-            { let mut curr_args = CURRENT_ARGS.lock().unwrap(); *curr_args = args_str; }
+            {
+                let mut curr_args = CURRENT_ARGS.lock().unwrap();
+                *curr_args = args_str;
+            }
 
-            let _ = dispatch_call_plugin_entry(&mut plugin);
-            let elapsed = start_time.elapsed().as_secs_f32();
-            print_info(&format!("<~> {} responded in {:.1}s.", label, elapsed));
+            let dispatched = {
+                let mut plugins = PLUGINS.lock().unwrap();
+                if let Some(plugin) = plugins.iter_mut().find(|p| p.name == cmd_str) {
+                    dispatch_call_plugin_entry(plugin)
+                } else {
+                    false
+                }
+            };
 
-            { let mut plugins = PLUGINS.lock().unwrap(); plugins.push(plugin); }
+            if dispatched {
+                let elapsed = start_time.elapsed().as_secs_f32();
+                print_info(&format!("<~> {} responded in {:.1}s.", label, elapsed));
+            }
         }));
 
         if let Err(e) = res {
@@ -855,6 +890,23 @@ pub fn dispatch_plugin_cmd(cmd: &str, args: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_import_requires_permission_mapping() {
+        assert_eq!(import_requires_permission("host_exec"), Some("host_exec"));
+        assert_eq!(import_requires_permission("get_env"), Some("get_env"));
+        assert_eq!(import_requires_permission("net_post"), Some("net_post"));
+        assert_eq!(import_requires_permission("print_info"), None);
+        assert_eq!(import_requires_permission("host_get_platform"), None);
+    }
+
+    #[test]
+    fn test_has_permission() {
+        let perms = vec!["host_exec".to_string(), "get_env".to_string()];
+        assert!(has_permission(&perms, "host_exec"));
+        assert!(has_permission(&perms, "get_env"));
+        assert!(!has_permission(&perms, "net_post"));
+    }
 
     #[test]
     fn test_parse_args_empty() {

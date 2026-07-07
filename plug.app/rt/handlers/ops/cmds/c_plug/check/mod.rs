@@ -74,7 +74,7 @@ pub fn c_check(_args: *const i8) -> i32 {
     let last_hr = download_file_hr(&registry_url, temp_path);
     let mut ok = last_hr == 0;
     if !ok {
-        // local fallback: copy registry from pluglists.json if download fail
+        // local fallback copy registry from pluglists.json if download fail
         if let Some(local_registry) = find_local_file("pluglists.json") {
             if let Ok(_) = fs::copy(&local_registry, temp_path) {
                 ok = true;
@@ -169,7 +169,7 @@ mod tests {
                 {
                     "name": "pTerm",
                     "author": "plug",
-                    "version": "1.0.0",
+                    "version": "1.0.1",
                     "description": "Terminal environment",
                     "official": true,
                     "sha256": "0c36f35332eada4fd8dd6e5d3e6678bf637d3be6176d6ef638bffbe4a643e044"
@@ -192,7 +192,7 @@ mod tests {
                 {
                     "name": "pTerm",
                     "author": "plug",
-                    "version": "1.0.0",
+                    "version": "1.0.1",
                     "description": "Terminal environment",
                     "official": true
                 }

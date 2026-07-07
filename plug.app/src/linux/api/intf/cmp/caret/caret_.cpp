@@ -6,7 +6,7 @@ static bool g_caret_visible = true;
 static gint64 g_last_blink_time = 0;
 
 void caret_l_draw(void* cr_ptr, int x, int y) {
-    // Caret blink logic: 500ms toggle
+    // caret blink logic 500ms toggle
     gint64 current_time = g_get_monotonic_time(); // microseconds
     if (current_time - g_last_blink_time > 500000) {
         g_caret_visible = !g_caret_visible;
@@ -22,7 +22,7 @@ void caret_l_draw(void* cr_ptr, int x, int y) {
         cairo_set_source_rgb(cr, 1.0, 1.0, 1.0); // White
     }
     
-    // Draw thick caret
+    // draw thick caret
     cairo_rectangle(cr, x, y - 12, 6, 14);
     cairo_fill(cr);
     
@@ -30,7 +30,7 @@ void caret_l_draw(void* cr_ptr, int x, int y) {
 }
 
 void caret_l_update(void) {
-    // Force caret visible immediately on typing
+    // force caret visible immediately on typing
     g_caret_visible = true;
     g_last_blink_time = g_get_monotonic_time();
 }

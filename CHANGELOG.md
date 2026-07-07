@@ -9,6 +9,11 @@
 * Shared WASM compilation module `tests/build_utils.py` to enforce `--allow-undefined` linker flags globally across all plugin builds.
 * Automated target binary copying and caching for Linux production builds.
 * Custom structured issue templates (Bug Report, Feature Request, Plugin Submission) and a Pull Request template in `.github/`.
+* Platform-agnostic OS detection FFI `host_get_platform` returning compile-time host platform evaluation (0 for Windows, 1 for Linux) to eliminate brittle environment variable parsing.
+* Linux shell executor backend (`sh.rs`) executing `/bin/sh -c` queries for the `pTerm` plugin.
+* Shell blacklisting security reinforcement: added `dash` shell to the banned executable list in the sandbox to block unauthorized access by untrusted plugins.
+* Shared `get_plugins_dir()` utility in `utils.rs` for consistent cross-platform plugin storage path resolution (`$HOME/.plug/plugins` on Linux, `%SystemDrive%\.plug\plugins` on Windows).
+* Permission gates for `get_env` and `net_post` WASM host imports — load-time import validation and runtime call-time enforcement against `plugin.toml` declarations.
 
 ### Fixed
 * Linux CI cross-compilation failure (`x86_64-pc-windows-gnu` target) — removed orphaned `.cargo/config.toml` that forced incorrect target resolution on Linux runners.
@@ -21,6 +26,14 @@
 * Linux production linker `undefined reference to 'g_headless_mode'` — guarded `extern "C"` declaration in `main_l.cpp` under `#ifdef PLUG_ENABLE_HEADLESS_MODE`; production builds now use `static constexpr bool g_headless_mode = false` with zero runtime cost.
 * GCC `-Wextern-initializer` warning in `main.cpp` — changed `extern "C" bool g_headless_mode = false` to block-form `extern "C" { bool g_headless_mode = false; }`.
 * Process hang on `/e` exit in headless mode — `g_cmd_thread` was blocking indefinitely on `g_cmd_cv.wait()`; `main_l_cleanup()` now sets `g_cmd_thread_running = false`, notifies the CV, and joins the thread before returning so the process exits cleanly within the test timeout window.
+* Headless CI broken pipe (`test_cli_lifecycle`) — moved `g_cmd_thread` and `g_headless_stdin_thread` startup from `on_tick()` frame-clock callback to `on_activate()` so stdin reader is live before any test data arrives; frame-clock callbacks are not guaranteed to fire before GApplication idle-hold expires under `xvfb-run`.
+* Linux `test_sandbox_rules` 120s timeout — plugin directory was hardcoded to `C:\.plug\plugins` (Windows-only); corrected to `$HOME/.plug/plugins` matching `proc.rs` `c_init()` runtime logic.
+* FFI Windows-centric symbol leakage — renamed `main_w_add_tab` to platform-neutral `host_add_tab` across `plugin_mgr.rs`, pTerm manifests, source plugin files, and test mocks (`ok_plugin.rs`, `rogue_plugin.rs`, `rogue_plugin_runtime.rs`) to prevent load-time link failures.
+* `pTerm` Linux shell execution compatibility — resolved execution errors on Linux hosts by adding `/sh` routing to the command parser, introducing the Linux shell backend, defaulting shell mode dynamically on Unix targets, and mapping E2E test assertions to platform-specific outputs.
+* Linux plugin install/delete path mismatch — `/plug` and `/plug-` handlers in `c_plug/mod.rs` and `c_plug/del/mod.rs` were hardcoded to `%SystemDrive%\.plug\plugins` (Windows-only); aligned with `c_init()` using shared `get_plugins_dir()` so Linux installs to `$HOME/.plug/plugins`.
+* Plugin dispatch race condition — `dispatch_plugin_cmd()` no longer removes the plugin instance from the in-memory registry during async execution; per-plugin execution locks serialize concurrent invocations instead.
+* README and startup banner exit command typo — corrected `/e-` references to `/e` in `main.cpp` and `main_l.cpp`.
+* FFI input sanitization — `c_parse()` routes command arguments through `to_c_string()` to strip embedded null bytes before CString conversion.
 
 ---
 

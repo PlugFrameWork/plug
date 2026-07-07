@@ -224,7 +224,7 @@ bool selection_get_line_range(int line_idx, int line_len, int& out_start, int& o
         out_end = norm_end.col;
     }
     
-    // Clamp to valid indexes
+    // clamp to valid indexes
     if (out_start < 0) out_start = 0;
     if (out_end > line_len) out_end = line_len;
     if (out_start >= out_end) return false;
@@ -235,7 +235,7 @@ bool selection_get_line_range(int line_idx, int line_len, int& out_start, int& o
 SelectionPos selection_map_point(POINT pt, RECT content_rc, float scroll, int char_w, int line_h, int total_lines) {
     if (char_w <= 0 || line_h <= 0) return { -1, -1 };
 
-    // Coordinate relative to the start of text (top-left of first line)
+    // coordinate relative to start of text top-left of first line
     int local_x = pt.x - (content_rc.left);
     int local_y = pt.y - (content_rc.top + 8) + (int)scroll;
 
@@ -255,39 +255,39 @@ void selection_render_highlight(HDC hdc, RECT rect) {
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
 
-    // Create a memory DC for the alpha-blended highlight
+    // create memory dc for alpha-blended highlight
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBM = CreateCompatibleBitmap(hdc, w, h);
     HBITMAP oldBM = (HBITMAP)SelectObject(memDC, memBM);
 
-    // Draw a rounded rectangle mask on the memory DC
-    // We use a vibrant blue with a subtle border logic
+    // draw rounded rectangle mask on memory dc
+    // we use a vibrant blue with a subtle border logic
     HBRUSH hb = CreateSolidBrush(RGB(65, 133, 244)); // Google Blue or similar vibrant blue
     HPEN hp = CreatePen(PS_NULL, 0, 0);
     HBRUSH oldB = (HBRUSH)SelectObject(memDC, hb);
     HPEN oldP = (HPEN)SelectObject(memDC, hp);
 
-    // Fill with highlight color
+    // fill with highlight color
     RoundRect(memDC, 0, 0, w, h, 4, 4);
 
-    // Restore and cleanup drawing objects for memDC
+    // restore and cleanup drawing objects for memdc
     SelectObject(memDC, oldB);
     SelectObject(memDC, oldP);
     DeleteObject(hb);
     DeleteObject(hp);
 
-    // Alpha blend constants
+    // alpha blend constants
     BLENDFUNCTION bf;
     bf.BlendOp = AC_SRC_OVER;
     bf.BlendFlags = 0;
     bf.SourceConstantAlpha = 110; // ~43% transparency
     bf.AlphaFormat = 0;
 
-    // Blend to the target HDC
+    // blend to target hdc
     GdiAlphaBlend(hdc, rect.left, rect.top, w, h,
                   memDC, 0, 0, w, h, bf);
 
-    // Cleanup memory DC
+    // cleanup memory dc
     SelectObject(memDC, oldBM);
     DeleteObject(memBM);
     DeleteDC(memDC);

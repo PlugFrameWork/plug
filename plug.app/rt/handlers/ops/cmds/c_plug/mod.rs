@@ -42,13 +42,13 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
         print_info(&format!("Downloading: {}.plug...", clean_name));
     }
 
-    let mut sys_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
-    if sys_drive.ends_with(':') {
-        sys_drive.push('\\');
-    }
-    let mut dest_root = PathBuf::from(sys_drive);
-    dest_root.push(".plug");
-    dest_root.push("plugins");
+    let dest_root = match crate::ops::utils::get_plugins_dir() {
+        Some(path) => path,
+        None => {
+            print_error("Failed to resolve plugins directory.");
+            return -1;
+        }
+    };
 
     if !dest_root.exists() {
         let _ = fs::create_dir_all(&dest_root);
@@ -90,14 +90,14 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
 
     let mut downloaded_wasm = progress::download_with_progress(&url_wasm, tmp_wasm.to_str().unwrap(), silent);
     if !downloaded_wasm {
-        // local fallback: copy plugin from local path if download fail
+        // local fallback copy plugin from local path if download fail
         if let Some(plugins_dir) = find_local_plugins_dir() {
             let local_wasm = plugins_dir.join(clean_name).join(clean_name);
             if local_wasm.exists() {
                 if let Ok(_) = fs::copy(&local_wasm, &tmp_wasm) {
                     downloaded_wasm = true;
                     if !silent {
-                        print_info(&format!("local fallback: copy plugin: {}", clean_name));
+                        print_info(&format!("local fallback copy plugin: {}", clean_name));
                     }
                 }
             }
@@ -110,7 +110,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
         }
         let mut downloaded_toml = progress::download_with_progress(&url_toml, tmp_toml.to_str().unwrap(), true);
         if !downloaded_toml {
-            // local fallback: copy manifest if download fail
+            // local fallback copy manifest if download fail
             if let Some(plugins_dir) = find_local_plugins_dir() {
                 let local_toml = plugins_dir.join("plugin.toml");
                 if local_toml.exists() {

@@ -2,7 +2,7 @@
 #define MAIN_L_H
 
 #ifdef __cplusplus
-// Forward declare for C++ code
+// forward declare for c++ code
 typedef struct _GtkWidget GtkWidget;
 
 #include <vector>
@@ -94,6 +94,14 @@ void main_l_cleanup(void);
 void main_l_print_banner(void);
 void main_l_print_info(const char* msg);
 void main_l_print_error(const char* msg);
+void main_l_set_prompt_visibility(int visible);
+void main_l_add_tab(const char* owner);
+void main_l_request_close(void);
+void main_l_replace_last_line(const char* msg);
+void main_l_set_tab_owner(int tab_idx, const char* owner);
+int main_l_get_tab_owner(int tab_idx, char* buf, int max_len);
+void main_l_set_tab_cwd(int tab_idx, const char* cwd);
+int main_l_get_current_print_tab(void);
 
 #ifdef __cplusplus
 }

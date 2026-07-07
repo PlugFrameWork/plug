@@ -8,4 +8,4 @@ Currently, the following official plugins are deployed and verified:
 
 | Plugin Name | Version | Description | Documentation Link |
 |---|---|---|---|
-| **pTerm** | `1.0.0` | Default core terminal runner plugin bridging WASM container to host shells. | [Details](catalog/pTerm.md) |
+| **pTerm** | `1.0.1` | Default core terminal runner plugin bridging WASM container to host shells. | [Details](CATALOG/pTerm.md) |

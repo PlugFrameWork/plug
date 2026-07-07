@@ -29,15 +29,15 @@ tests/
 
 To distinguish target environment mismatches from code failures, `preflight.py` executes before the orchestrator to verify requirements:
 - **Rust Target**: Verifies `wasm32-unknown-unknown` target is installed via `rustup target list --installed`. If missing, installs it or halts with setup instructions.
-- **Version Ranges**: Checks that `cargo` and `wasmer` match the verified toolchain versions (defined as hardcoded constants inside `preflight.py`) to prevent flaky behavior.
+- **Version Ranges**: Checks that `cargo` is present and reports the configured minimum cargo version from `preflight.py`.
 - **Zero-Dependency Path-Based Orphan Cleanup**:
   - To avoid installing third-party Python modules like `psutil` in CI/dev setups, path lookup uses native command utilities.
   - **Windows**: Invokes `powershell "Get-Process plug -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path"` to retrieve the executable path of matching active processes.
   - **Linux**: Reads `/proc/<pid>/exe` using `os.readlink()` for processes owned by the current user.
   - If a process matches the exact absolute target path of our compiled build binary in the workspace, it is terminated.
 - **OS Mapping**: Detects hosting environment parameters (`platform.system()`) to assign OS-specific configurations:
-  - Binary names: `plug.exe` (Windows) vs `plug` (Linux).
-  - Executable permissions: Performs `chmod +x` on Unix targets.
+  - Binary names: `plug-{arch}.exe` (Windows) vs `plug-{arch}` (Linux).
+  - Release directories: `plug.cross/release/{arch}` on Windows and `plug.cross/release/x86_64` for Linux x64.
   - Path separator configurations.
 - **Output**: Generates a unified `EnvContext` JSON object containing all pathing and platform context, which is forwarded to subsequent test scripts.
 
@@ -65,7 +65,7 @@ Manifest configurations (`plugin.toml`) define the permission scope of the WASM 
   ```toml
   [[plugin]]
   name = "ok_plugin"
-  permissions = ["main_w_add_tab", "host_exec"]
+  permissions = ["host_add_tab", "host_exec"]
   ```
 - **`rogue_plugin` Manifest (Load-time)**:
   ```toml
@@ -76,7 +76,7 @@ Manifest configurations (`plugin.toml`) define the permission scope of the WASM 
 
 WASM files check:
 - **`ok_plugin.rs`**: Baseline plugin using permitted FFI calls. Verifies normal operations and prevents false-positive test results.
-- **`rogue_plugin.rs`** (Load-time check): A plugin containing host imports not declared in its `plugin.toml` manifest permissions. Verifies that the Wasmer runtime successfully rejects module initialization.
+- **`rogue_plugin.rs`** (Load-time check): A plugin containing host imports not declared in its `plugin.toml` manifest permissions (e.g. `host_add_tab`, `get_env`, `net_post`). Verifies that the Wasmer runtime successfully rejects module initialization.
 - **`rogue_plugin_runtime.rs`** (Runtime check): A plugin with valid import declarations that calls `host_exec` with arguments exceeding its permission scope (or attempts prohibited actions). Verifies that the runtime correctly catches and traps the thread during runtime execution.
 
 ### 3.3 Unit Tests (`tests/unit/`)
@@ -94,8 +94,8 @@ WASM files check:
   - `rogue_plugin_runtime sandbox trap check` (runtime execution containment).
   - `ok_plugin integrity mismatch check` (tampered WASM with stale `.integrity` sidecar is blocked).
   - `Global migration and post-migration bypass checks` (**Plan Cases A & B**: one-time global migration backfill validation and post-migration missing sidecar blocking).
-  - `Trusted plugin bypass integrity file check` (**Plan Case C**: verifies `pTerm` with valid compiled hash loads successfully without sidecar and executes a real `dir` command via `host_exec`).
-  - `Tampered trusted plugin block check` (**Plan Case D**: verifies tampered `pTerm` is blocked and fails-closed).
+  - `Trusted plugin bypass integrity file check`
+  - `Tampered trusted plugin block check`
 
 ### 3.5 End-to-End Tests (`tests/e2e/`)
 - **`test_cli_lifecycle.py`**: Spawns the production compiled `plug` executable under test scenarios using `subprocess.Popen` with `HIDE_CONSOLE=ON` (the standard production build configuration to ensure we test the identical binary shipped).

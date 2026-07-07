@@ -4,10 +4,10 @@
     {
       "name": "pTerm",
       "author": "plug",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Terminal environment",
       "official": true,
-      "sha256": "efa5c667883a6b0e740f447db856a0461c7bb765978e61d1c5a0b74f0e57f51f"
+      "sha256": "9ada6ad5b1026e126bfc212364d1ad9876c0d280b6477498d8a2220e99091f14"
     }
   ]
 }

@@ -73,6 +73,10 @@ int main_w_print_tab(void);
 void main_w_request_close(void);
 void main_w_set_prompt_visibility(int visible);
 void main_w_add_tab(const char* owner);
+void main_w_set_tab_owner(int tab_idx, const char* owner);
+int main_w_get_tab_owner(int tab_idx, char* buf, int max_len);
+void main_w_set_tab_cwd(int tab_idx, const char* cwd);
+int main_w_get_current_print_tab(void);
 
 void main_w_run_message_loop(void);
 

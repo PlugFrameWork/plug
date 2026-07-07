@@ -8,14 +8,14 @@ void tab_l_draw(void* cr_ptr, int width) {
     
     cairo_t* cr = (cairo_t*)cr_ptr;
     
-    // Tab metrics
+    // tab metrics
     int x_offset = 10;
     int y = 5;
     int h = 35;
     int r = 8;
     int tab_padding = 15;
     
-    // Rebuild close button hit boxes each frame
+    // rebuild close button hit boxes each frame
     g_tab_close_boxes.resize(g_tabs.size());
 
     for (size_t i = 0; i < g_tabs.size(); ++i) {
@@ -25,7 +25,7 @@ void tab_l_draw(void* cr_ptr, int width) {
         cairo_text_extents(cr, g_tabs[i].title.c_str(), &te);
         int w = (int)te.width + tab_padding * 2 + 24; // 24 for close button
         
-        // Draw tab background
+        // draw tab background
         cairo_new_sub_path(cr);
         cairo_arc(cr, x_offset + w - r, y + r, r, -M_PI/2, 0);
         cairo_line_to(cr, x_offset + w, y + h);
@@ -40,22 +40,22 @@ void tab_l_draw(void* cr_ptr, int width) {
         }
         cairo_fill(cr);
 
-        // Close button position
+        // close button position
         int close_bx = x_offset + w - 20;
         int close_by = y + 13;
         int close_bw = 10;
         int close_bh = 10;
 
-        // Store hit box for click detection
+        // store hit box for click detection
         g_tab_close_boxes[i] = { close_bx, close_by, close_bw, close_bh };
 
-        // Draw close button: green normally, red on hover
+        // draw close button green normally red on hover
         if (g_hover_close_tab == (int)i) {
             cairo_set_source_rgb(cr, 0.9, 0.2, 0.2); // Red on hover
         } else {
             cairo_set_source_rgb(cr, 0.2, 0.75, 0.2); // Green normal
         }
-        // Draw as a rounded small square
+        // draw as a rounded small square
         double bx = close_bx, by2 = close_by, bw = close_bw, bh = close_bh, br = 2.5;
         cairo_new_sub_path(cr);
         cairo_arc(cr, bx + bw - br, by2 + br, br, -M_PI/2, 0);
@@ -65,7 +65,7 @@ void tab_l_draw(void* cr_ptr, int width) {
         cairo_close_path(cr);
         cairo_fill(cr);
 
-        // Draw Tab Text
+        // draw tab text
         if ((int)i == g_active_tab) {
             cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
         } else {

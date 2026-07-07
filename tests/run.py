@@ -118,16 +118,17 @@ def build_project(project_root: Path, os_name: str, headless_test: bool = False)
                 "cmake",
                 "-S", str(build_dir.parent),
                 "-B", str(build_dir),
-                "-DHIDE_CONSOLE=ON",
                 f"-DRUST_LIB_PATH={rust_lib}"
             ]
+            if os_name == "Windows":
+                cmake_args.append("-DHIDE_CONSOLE=ON")
             if headless_test:
                 cmake_args.append("-DPLUG_ENABLE_HEADLESS_MODE=ON")
             else:
                 cmake_args.append("-DPLUG_ENABLE_HEADLESS_MODE=OFF")
             subprocess.check_call(cmake_args)
             subprocess.check_call(["cmake", "--build", str(build_dir)])
-            
+
             # copy compiled binary to release directory for linux target
             release_subdir = "x86_64"
             target_name = "plug-test-x64" if headless_test else "plug-x64"

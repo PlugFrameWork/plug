@@ -2,11 +2,11 @@ use std::time::Duration;
 use ureq;
 use serde_json::Value;
 
-/// default timeout for net reqests
+/// default timeout for net request
 const DEFAULT_TIMEOUT: u64 = 30;
 const USER_AGENT: &str = "plug-runtime/1.0.0";
 
-/// execute post reqest with json body
+/// execute post request with json body
 pub fn http_post_json(url: &str, json_payload: &str) -> Result<String, String> {
     // check input json format validity
     let body: Value = serde_json::from_str(json_payload)

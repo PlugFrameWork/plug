@@ -128,27 +128,27 @@ static std::thread g_headless_stdin_thread;
 
 static void headless_stdin_worker(void) {
     std::string line;
-    // Read input from stdin line by line
+    // read input from stdin line by line
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
         
-        // Check for test state dump request (magic command string)
+        // check for test state dump request magic command string
         if (line == "__dump_state__") {
             PostMessageW(g_hwnd, WM_APP + 200, 0, 0);
             continue;
         }
         
-        // Convert the UTF-8 input line to UTF-16
+        // convert the utf-8 input line to utf-16
         int n = MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, NULL, 0);
         if (n > 0) {
             std::vector<wchar_t> wline(n);
             MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, wline.data(), n);
             
-            // Post WM_CHAR character messages to simulate key presses
+            // post wm_char character message to simulate key press
             for (size_t i = 0; i < wline.size() - 1; ++i) {
                 PostMessageW(g_hwnd, WM_CHAR, wline[i], 0);
             }
-            // Conclude with Enter key press
+            // conclude with enter key press
             PostMessageW(g_hwnd, WM_CHAR, L'\r', 0);
         }
     }
@@ -457,7 +457,7 @@ static void render(HDC hdc) {
             std::wstring p1 = ln.text.substr(0, prompt_len);
             std::wstring p2 = (ln.text.size() > (size_t)prompt_len) ? ln.text.substr(prompt_len) : L"";
             
-            // Special color for user prompt prefix, brightened on hover
+            // special color for user prompt prefix brightened on hover
             COLORREF user_color = hover_get_color(COL_USER, current_line_idx);
             SetTextColor(hdc, user_color);
             RECT r1 = {content.left, y - (int)tab_content_scroll, content.right, content.bottom};
@@ -512,10 +512,10 @@ static void render(HDC hdc) {
             int line_start = off;
             int line_end = off + take;
 
-            // Draw selection for live input line
+            // draw selection for live input line
             int sel_s, sel_e;
             if (selection_get_line_range(current_line_idx, (int)live_full.size(), sel_s, sel_e)) {
-                // Determine the overlap between [line_start, line_end) and [sel_s, sel_e)
+                // determine the overlap between [line_start, line_end) and [sel_s, sel_e)
                 int overlap_s = std::max(line_start, sel_s);
                 int overlap_e = std::min(line_end, sel_e);
                 if (overlap_s < overlap_e) {
@@ -982,7 +982,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         hover_tab_update(hwnd, tab_close_hit_test(pt, g_tab_close_rects));
 
-        // Use modular hover effect for text lines
+        // use modular hover effect for text lines
         RECT content_rc; GetClientRect(hwnd, &content_rc);
         content_rc.top = 44 + 28; // Below header and tabs
         content_rc.left += 16; content_rc.right -= 16; content_rc.bottom -= 8;
@@ -998,7 +998,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             hover_update(hwnd, pt, content_rc, g_content_scroll, line_h);
 
-            // Selection update
+            // selection update
             if (g_selection.dragging) {
                 int total_lines = 0;
                 {
@@ -1097,21 +1097,32 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             return 0;
         }
 
-        std::lock_guard<std::mutex> lk(g_mutex);
-
-        RECT tabr = r; tabr.top = 44; tabr.bottom = 72;
-        int close_idx = tab_close_hit_test(pt, g_tab_close_rects);
+        // check tab close hit under lock then release before ffi callback
+        int close_idx = -1;
+        {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            close_idx = tab_close_hit_test(pt, g_tab_close_rects);
+        }
         if (close_idx != -1) {
-            if (close_idx >= 0 && close_idx < (int)g_tabs.size()) {
-                // Notify Rust runtime BEFORE erasing so it can still read tab owner
-                c_on_tab_close(close_idx);
-                g_tabs.erase(g_tabs.begin() + close_idx);
-                if (g_active_tab >= (int)g_tabs.size()) g_active_tab = (int)g_tabs.size() - 1;
+            // notify rust runtime before erasing so it can still read tab owner
+            // must be outside g_mutex because rust calls back into get_tab_owner / print_info
+            // which also lock g_mutex — re-entry on non-recursive mutex = instant deadlock
+            c_on_tab_close(close_idx);
+            {
+                std::lock_guard<std::mutex> lk(g_mutex);
+                if (close_idx >= 0 && close_idx < (int)g_tabs.size()) {
+                    g_tabs.erase(g_tabs.begin() + close_idx);
+                    if (g_active_tab >= (int)g_tabs.size()) g_active_tab = (int)g_tabs.size() - 1;
+                }
+                selection_clear();
             }
-            selection_clear();
             InvalidateRect(hwnd, NULL, FALSE);
             break;
         }
+
+        {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        RECT tabr = r; tabr.top = 44; tabr.bottom = 72;
         int hit = tab_hit_test_pt(pt, tabr, (int)g_tabs.size(), g_tab_scroll);
         if (hit != -1) {
             g_active_tab = hit;
@@ -1120,7 +1131,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             break;
         }
 
-        // Start text selection
+        // start text selection
         RECT content_rc; GetClientRect(hwnd, &content_rc);
         content_rc.top = 44 + 28; content_rc.left += 16; content_rc.right -= 16; content_rc.bottom -= 8;
         if (PtInRect(&content_rc, pt)) {
@@ -1141,6 +1152,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             selection_clear();
             InvalidateRect(hwnd, NULL, FALSE);
         }
+        } // end g_mutex scope
         break; }
     case WM_LBUTTONUP:
         if (g_selection.dragging) {
@@ -1403,7 +1415,7 @@ extern "C" void main_w_add_tab(const char* owner) {
         int n = MultiByteToWideChar(CP_UTF8, 0, owner, -1, NULL, 0);
         if (n > 1) { w_owner.resize(n - 1); MultiByteToWideChar(CP_UTF8, 0, owner, -1, &w_owner[0], n); }
     }
-    // We'll use a hack: pass owner in LPARAM
+    // we'll use a hack pass owner in lparam
     PostMessageW(g_hwnd, WM_APP + 100, 0, (LPARAM)(owner ? _strdup(owner) : nullptr));
 }
 
@@ -1451,14 +1463,14 @@ extern "C" void main_w_recolor_console_all(void) {
 extern "C" void main_w_set_current_color(WORD color) { g_current_color_word = color; }
 extern "C" WORD main_w_get_current_color(void) { return g_current_color_word; }
 
-extern "C" __declspec(dllexport) void main_w_set_tab_owner(int tab_idx, const char* owner_name) {
+extern "C" void main_w_set_tab_owner(int tab_idx, const char* owner_name) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (tab_idx >= 0 && tab_idx < (int)g_tabs.size()) {
         g_tabs[tab_idx].plugin_owner = owner_name ? owner_name : "";
     }
 }
 
-extern "C" __declspec(dllexport) int main_w_get_tab_owner(int tab_idx, char* buf, int max_len) {
+extern "C" int main_w_get_tab_owner(int tab_idx, char* buf, int max_len) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (tab_idx >= 0 && tab_idx < (int)g_tabs.size() && buf && max_len > 0) {
         strncpy(buf, g_tabs[tab_idx].plugin_owner.c_str(), max_len - 1);
@@ -1467,11 +1479,11 @@ extern "C" __declspec(dllexport) int main_w_get_tab_owner(int tab_idx, char* buf
     }
     return 0;
 }
-extern "C" __declspec(dllexport) int main_w_get_active_tab(void) {
+extern "C" int main_w_get_active_tab(void) {
     return g_active_tab;
 }
 
-extern "C" __declspec(dllexport) int main_w_get_current_print_tab(void) {
+extern "C" int main_w_get_current_print_tab(void) {
     return g_active_tab; // For now, we assume print goes to active tab.
 }
 

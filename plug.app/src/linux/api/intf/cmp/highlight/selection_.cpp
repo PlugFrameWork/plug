@@ -12,7 +12,7 @@ void selection_l_draw(void* cr_ptr) {
     cairo_t* cr = (cairo_t*)cr_ptr;
     cairo_save(cr);
 
-    // Google Blue Highlight color with ~40% opacity
+    // google blue highlight color with ~40% opacity
     cairo_set_source_rgba(cr, 65.0/255.0, 133.0/255.0, 244.0/255.0, 0.4);
 
     SelectionPos s = std::min(g_selection.start, g_selection.end);
@@ -45,7 +45,7 @@ void selection_l_draw(void* cr_ptr) {
 
         int hl_x = 10 + col_start * char_w;
         int hl_w = (col_end - col_start) * char_w;
-        if (hl_w == 0 && i != e.line) hl_w = char_w; // Highlight newline
+        if (hl_w == 0 && i != e.line) hl_w = char_w; // highlight newline
 
         cairo_rectangle(cr, hl_x, y, hl_w, line_h);
         cairo_fill(cr);

@@ -80,8 +80,8 @@ def main():
             sys_drive += "\\"
         plug_dir = Path(sys_drive) / ".plug" / "plugins"
     else:
-        # on linux systemdrive is not set so app default to c:\
-        plug_dir = Path("C:\\") / ".plug" / "plugins"
+        # on linux the runtime uses $HOME/.plug/plugins (see proc.rs c_init)
+        plug_dir = Path.home() / ".plug" / "plugins"
         
     # backup existing plugin folder if it exists
     backup_dir = plug_dir.parent / "plugins_backup"
@@ -353,15 +353,15 @@ def main():
         pterm_src = list((project_root / "plugins" / "pTerm").glob("pTerm.*"))
         pterm_wasm = [p for p in pterm_src if p.suffix not in (".hash", ".integrity", ".tmp")][0]
         
-        # write pterm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+        # write pterm.toml containing permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
         with open(pterm_toml_path, "w", encoding="utf-8") as f:
             f.write("""[plugin]
 name = "pTerm"
-version = "1.0.0"
+version = "1.0.1"
 author = "plug"
 api_version = "0.1.2a"
-permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
         # setup plugin in sandbox without .integrity file
@@ -389,8 +389,9 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             env={**os.environ, "PLUG_HEADLESS": "1"}
         )
         
-        # send /cmd dir command to execute via pterm and verify output
-        proc.stdin.write("/cmd dir\n")
+        # send command to execute via pterm and verify output
+        exec_cmd = "/cmd dir\n" if system == "Windows" else "/sh ls\n"
+        proc.stdin.write(exec_cmd)
         proc.stdin.flush()
         import time
         time.sleep(1.0)
@@ -403,16 +404,17 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
         has_load_fail = (
             "Failed to load pTerm" in stderr or "Failed to load pTerm" in stdout or
             "Missing integrity sidecar for pTerm" in stderr or "Missing integrity sidecar for pTerm" in stdout or
-            "Invalid manifest format" in stderr or "Missing manifest entry" in stderr
+            "Invalid manifest format" in stderr or "Missing manifest entry" in stderr or
+            "symbol not found" in stderr.lower() or "link error" in stderr.lower() or
+            "instantiate failed" in stderr.lower() or "import error" in stderr.lower()
         )
         
-        # check if execusion output contain typical repository file/folders (dir command results)
+        # check if execusion output contain typical repository file/folders (dir/ls command results)
         has_execution_output = "test_sandbox_rules.py" in stdout or "Cargo.toml" in stdout or "plugins" in stdout or "plug.app" in stdout
         
         if not has_load_fail and has_execution_output:
             print("[PASS] Trusted plugin successfully bypassed integrity sidecar check and executed host command.")
         else:
-            print("[FAIL] Trusted plugin execution or load bypass failed!")
             print(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
             failed = True
 
@@ -426,15 +428,15 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             with open(marker_path, "w") as f:
                 f.write("v1_done")
                 
-        # write pterm.toml containing permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+        # write pterm.toml containing permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
         with open(pterm_toml_path, "w", encoding="utf-8") as f:
             f.write("""[plugin]
 name = "pTerm"
-version = "1.0.0"
+version = "1.0.1"
 author = "plug"
 api_version = "0.1.2a"
-permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
 """)
 
         # setup pterm in sandbox but using corrupted/tampered bytes (using ok_plugin.wasm)
@@ -519,7 +521,7 @@ permissions = ["host_exec", "main_w_add_tab", "host_set_tab_owner", "host_get_ta
             with open(plugins_web_dir / "plugin.toml", "w", encoding="utf-8") as f:
                 f.write("""[plugin]
 name = "pTerm"
-version = "1.0.0"
+version = "1.0.1"
 author = "plug"
 api_version = "0.1.2a"
 permissions = ["host_exec"]
@@ -538,7 +540,7 @@ permissions = ["host_exec"]
                     {
                         "name": "pTerm",
                         "author": "plug",
-                        "version": "1.0.0",
+                        "version": "1.0.1",
                         "description": "Terminal environment",
                         "official": True,
                         "sha256": mock_wasm_hash

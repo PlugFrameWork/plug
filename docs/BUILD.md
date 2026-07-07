@@ -22,14 +22,14 @@ Run the platform-specific scripts to compile the Rust core runtime, build WASM p
 cd plug.cross\windows
 .\make.bat
 ```
-Outputs: `release/x64/plug.exe` and `plugins/`
+Outputs: `plug.cross/release/x64/plug-x64.exe` and `plugins/`
 
 ### Linux
 ```bash
 cd plug.cross/linux
 ./make.sh
 ```
-Outputs: `release_linux_x64/plug` and `plugins/`
+Outputs: `plug.cross/release/x86_64/plug-x64` and `plugins/`
 
 ---
 

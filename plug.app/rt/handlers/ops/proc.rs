@@ -1,4 +1,3 @@
-use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 use crate::ops::host::{get_current_print_tab, get_tab_owner};
@@ -11,22 +10,7 @@ pub extern "C" fn c_init() -> i32 {
     INIT.call_once(|| {
         RUNNING.store(true, Ordering::SeqCst);
         
-        let mut sys_path = std::path::PathBuf::new();
-        if cfg!(windows) {
-            if let Ok(mut sys_drive) = std::env::var("SystemDrive") {
-                if sys_drive.ends_with(':') { sys_drive.push('\\'); }
-                sys_path.push(sys_drive);
-                sys_path.push(".plug");
-            }
-        } else {
-            if let Ok(home) = std::env::var("HOME") {
-                sys_path.push(home);
-                sys_path.push(".plug");
-            }
-        }
-        
-        if sys_path.capacity() > 0 {
-            sys_path.push("plugins");
+        if let Some(sys_path) = crate::ops::utils::get_plugins_dir() {
             if let Some(path_str) = sys_path.to_str() {
                 crate::ops::plugin_mgr::init_plugins(path_str);
             }
@@ -78,7 +62,7 @@ pub extern "C" fn c_parse(input: *mut i8) -> i32 {
     let args = parts.next().map(|a| a.trim()).unwrap_or("");
 
     let args_clean = args.replace('\0', " ");
-    let c_args = CString::new(args_clean.clone()).unwrap_or_else(|_| CString::new("").unwrap());
+    let c_args = crate::ops::utils::to_c_string(&args_clean);
 
     match cmd {
         "/a" => { return crate::ops::cmds::c_abt::c_abt(c_args.as_ptr() as *const i8); }
@@ -89,7 +73,7 @@ pub extern "C" fn c_parse(input: *mut i8) -> i32 {
         "/plug-" => { return crate::ops::cmds::c_plug::del::c_del(c_args.as_ptr() as *const i8); }
         "/plug" => { return crate::ops::cmds::c_plug::c_plug(c_args.as_ptr() as *const i8); }
 
-        "/cmd" | "/ps" => {
+        "/cmd" | "/ps" | "/sh" => {
             let plugin_target = "pTerm";
             let full_args = format!("{} {}", cmd.trim_start_matches('/'), args_clean);
             if crate::ops::plugin_mgr::dispatch_plugin_cmd(plugin_target, &full_args.trim()) {

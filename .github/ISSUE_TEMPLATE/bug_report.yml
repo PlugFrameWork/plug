@@ -39,7 +39,7 @@ body:
     id: plugin
     attributes:
       label: "Relevant Plugin (If Applicable)"
-      description: "If this issue is related to a specific WebAssembly plugin (such as pTerm), specify its name and version."
-      placeholder: "e.g., pTerm vx.x.x"
+      description: "If this issue is related to a specific WebAssembly plugin, specify its name and version."
+      placeholder: "e.g., plugin vx.x.x"
     validations:
-      required: false
+      required: false 

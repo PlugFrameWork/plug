@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::PathBuf;
 
 pub fn c_del(args: *const i8) -> i32 {
     let hash = match crate::ops::utils::safe_cstr_to_string(args) {
@@ -12,13 +11,13 @@ pub fn c_del(args: *const i8) -> i32 {
         return -1;
     }
 
-    let mut sys_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
-    if sys_drive.ends_with(':') {
-        sys_drive.push('\\');
-    }
-    let mut plugins_dir = PathBuf::from(sys_drive);
-    plugins_dir.push(".plug");
-    plugins_dir.push("plugins");
+    let plugins_dir = match crate::ops::utils::get_plugins_dir() {
+        Some(path) => path,
+        None => {
+            crate::ops::host::print_error("Failed to resolve plugins directory.");
+            return -1;
+        }
+    };
 
     if !plugins_dir.exists() {
         crate::ops::host::print_error("Plugins directory not found.");

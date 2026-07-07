@@ -39,9 +39,12 @@ version = "1.0.0"
 author = "Dev"
 api_version = "xxx"
 permissions = [
-  "host_exec",         # Spawning local commands (CMD / PowerShell)
-  "main_w_add_tab",    # Spawning new tabs
-  "host_set_tab_owner" # Taking tab ownership
+  "host_exec",         # Spawning local commands (CMD / PowerShell / shell)
+  "host_add_tab",      # Spawning new tabs
+  "host_set_tab_owner", # Taking tab ownership
+  "host_get_tab_label", # Reading active tab label
+  "get_env",           # Reading host environment variables
+  "net_post"           # HTTP POST requests from plugin runtime
 ]
 ```
 

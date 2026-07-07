@@ -24,26 +24,30 @@ def run_command(cmd, cwd, env=None):
         print(f"[ERROR] Command failed with exit code {e.returncode}")
         sys.exit(1)
 
-def build(toolchain_name=None):
+def build(toolchain_name=None, headless_test=False):
     import time
     start_time = time.time()
     config = load_config()
-    
+
     if toolchain_name is None:
         toolchain_name = config.get("active_toolchain", "gcc-x64")
-        
+
     toolchains = config.get("toolchains", {})
     if toolchain_name not in toolchains:
         print(f"[ERROR] Toolchain '{toolchain_name}' not found.")
         sys.exit(1)
-        
+
     tc = toolchains[toolchain_name]
     tools = config.get("tools", {})
     build_options = config.get("build_options", {})
-    
+
+    if headless_test:
+        build_options["headless_test"] = True
+
     arch = tc.get("arch", "x64")
     
-    release_dir = os.path.join(ROOT_DIR, f"release_linux_{arch}")
+    release_subdir = "x86_64" if arch == "x64" else arch
+    release_dir = os.path.join(os.path.dirname(CROSS_DIR), "release", release_subdir)
     build_dir = os.path.join(CROSS_DIR, "build", toolchain_name)
     if os.path.exists(build_dir):
         shutil.rmtree(build_dir, ignore_errors=True)
@@ -57,12 +61,12 @@ def build(toolchain_name=None):
     
     env = os.environ.copy()
     
-    # Tự động bổ sung ~/.cargo/bin vào PATH nếu chưa có (Phổ biến trên Linux/rustup)
+    # add cargo bin path if missing
     cargo_home_bin = os.path.expanduser("~/.cargo/bin")
     if os.path.exists(cargo_home_bin) and cargo_home_bin not in env.get("PATH", ""):
         env["PATH"] = f"{cargo_home_bin}:{env.get('PATH', '')}"
 
-    # Check and set C/C++ compilers
+    # set c and c++ compiler
     if tc.get("c_compiler"):
         resolved_cc = shutil.which(tc["c_compiler"], path=env.get("PATH"))
         if not resolved_cc:
@@ -70,7 +74,7 @@ def build(toolchain_name=None):
             sys.exit(1)
         env["CC"] = resolved_cc
         
-        # Ép Rust sử dụng đúng linker này thay vì dùng mặc định 'cc'
+        # force rust use selected linker
         rust_target_env = tc["rust_target"].upper().replace("-", "_")
         env[f"CARGO_TARGET_{rust_target_env}_LINKER"] = resolved_cc
         
@@ -81,13 +85,12 @@ def build(toolchain_name=None):
             sys.exit(1)
         env["CXX"] = resolved_cxx
     
-    # Resolve the absolute path of cargo to avoid FileNotFoundError
+    # resolve cargo path avoid filenotfounderror
     resolved_cargo = shutil.which(cargo_cmd, path=env.get("PATH"))
     if not resolved_cargo:
         print("[ERROR] 'cargo' is not found. Please install Rust (https://rustup.rs/)")
         sys.exit(1)
 
-    # 0. Build WASM plugins
     print("\n[0] Building WASM Plugins...")
     plugins_dir = os.path.join(ROOT_DIR, "plugins")
     os.makedirs(plugins_dir, exist_ok=True)
@@ -98,19 +101,21 @@ def build(toolchain_name=None):
         import hashlib
         for root, dirs, files in os.walk(src_plugins_dir):
             for filename in files:
-                if filename.endswith(".rs") and not filename.startswith("."):
-                    name = os.path.splitext(filename)[0]
-                    hash_val = hashlib.md5(name.encode()).hexdigest()[:8]
-                    plugin_out_dir = os.path.join(plugins_dir, name)
-                    if os.path.exists(plugin_out_dir) and not os.path.isdir(plugin_out_dir):
-                        os.remove(plugin_out_dir)
-                    os.makedirs(plugin_out_dir, exist_ok=True)
-                    out_wasm = os.path.join(plugin_out_dir, f"{name}.{hash_val}")
-                    out_hash = os.path.join(plugin_out_dir, f"{name}.hash")
-                    
-                    print(f"[WASM] Compiling {name}...")
-                    from pathlib import Path
-                    compile_wasm_plugin(Path(os.path.join(root, filename)), Path(out_wasm))
+                if not filename.endswith(".rs") or filename.startswith("."):
+                    continue
+
+                name = os.path.splitext(filename)[0]
+                hash_val = hashlib.md5(name.encode()).hexdigest()[:8]
+                plugin_out_dir = os.path.join(plugins_dir, name)
+                if os.path.exists(plugin_out_dir) and not os.path.isdir(plugin_out_dir):
+                    os.remove(plugin_out_dir)
+                os.makedirs(plugin_out_dir, exist_ok=True)
+                out_wasm = os.path.join(plugin_out_dir, f"{name}.{hash_val}")
+                out_hash = os.path.join(plugin_out_dir, f"{name}.hash")
+
+                print(f"[WASM] Compiling {name}...")
+                from pathlib import Path
+                compile_wasm_plugin(Path(os.path.join(root, filename)), Path(out_wasm))
                 
                 with open(out_hash, "w") as hf:
                     hf.write(hash_val)
@@ -129,7 +134,6 @@ def build(toolchain_name=None):
         if os.path.exists(src_toml):
             shutil.copy2(src_toml, dst_toml)
 
-    # 1. Build Rust
     print(f"\n[1] Building Rust Runtime ({toolchain_name})...")
     
     hash_file = os.path.join(RUST_APP_DIR, "pterm_hash.txt")
@@ -145,10 +149,9 @@ def build(toolchain_name=None):
     run_command([resolved_cargo, "build", "--release", "--target", rust_target], cwd=RUST_APP_DIR, env=env)
     rust_lib_path = os.path.join(RUST_APP_DIR, "target", rust_target, "release", "libtm_main.a")
     
-    # 2. Build C/C++ with CMake
     print(f"\n[2] Configuring C/C++ Engine ({toolchain_name})...")
     
-    # GTK4 requires pkg-config to resolve library paths
+    # gtk4 need pkg-config resolve library path
     if not shutil.which("pkg-config", path=env.get("PATH")):
         print("[ERROR] 'pkg-config' is not found. Please install it (e.g. sudo apt install pkg-config libgtk-4-dev).")
         sys.exit(1)
@@ -159,20 +162,23 @@ def build(toolchain_name=None):
         sys.exit(1)
 
     cmake_cmd = [
-        resolved_cmake, 
+        resolved_cmake,
         "-G", "Ninja",
         f"-DRUST_LIB_PATH={rust_lib_path}",
         "-DCMAKE_BUILD_TYPE=Release"
     ]
-    
+
     if tc.get("extra_flags"):
         cmake_cmd.append(f"-DCMAKE_C_FLAGS={tc['extra_flags']}")
         cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={tc['extra_flags']}")
-        
+
     if build_options.get("hide_console", False):
-        # Console hide on Linux typically means launching detached or avoiding stdout
-        pass 
-        
+        # linux hide console need detached launch or stdout avoid
+        pass
+
+    if build_options.get("headless_test", False):
+        cmake_cmd.append("-DPLUG_ENABLE_HEADLESS_MODE=ON")
+
     cmake_cmd.append(CROSS_DIR)
     run_command(cmake_cmd, cwd=build_dir, env=env)
     
@@ -183,10 +189,9 @@ def build(toolchain_name=None):
         sys.exit(1)
     run_command([resolved_ninja], cwd=build_dir, env=env)
     
-    # 4. Strip & Compress
     exe_name = "plug"
     exe_path = os.path.join(build_dir, exe_name)
-    release_exe = os.path.join(release_dir, exe_name)
+    release_exe = os.path.join(release_dir, f"plug-{arch}")
     
     print("\n[4] Stripping debug symbols...")
     run_command(["strip", exe_path], cwd=build_dir)
@@ -204,7 +209,15 @@ def build(toolchain_name=None):
     print(f"\n[OK] Build completed! Output: {release_exe}")
 
 if __name__ == "__main__":
-    if len(sys.argv) >= 2:
-        build(sys.argv[1])
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("toolchain", nargs="?", help="Toolchain name")
+    parser.add_argument("--headless-test", action="store_true", help="Build with headless test mode")
+    args = parser.parse_args()
+
+    if args.toolchain:
+        build(args.toolchain, headless_test=args.headless_test)
+    elif args.headless_test:
+        build(headless_test=True)
     else:
         build()

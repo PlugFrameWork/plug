@@ -208,5 +208,5 @@ void cleanup_resources(void) {
 
 void show_startup_banner(void) {
     main_ui_print_banner();
-    main_ui_print_info("Type /? for help or /e- to exit");
+    main_ui_print_info("Type /? for help or /e to exit");
 }

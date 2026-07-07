@@ -1,5 +1,31 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::path::PathBuf;
+
+pub fn get_plugins_dir() -> Option<PathBuf> {
+    let mut sys_path = PathBuf::new();
+    if cfg!(windows) {
+        let mut sys_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+        if sys_drive.ends_with(':') {
+            sys_drive.push('\\');
+        }
+        sys_path.push(sys_drive);
+        sys_path.push(".plug");
+    } else if let Ok(home) = std::env::var("HOME") {
+        sys_path.push(home);
+        sys_path.push(".plug");
+    }
+    if sys_path.as_os_str().is_empty() {
+        return None;
+    }
+    sys_path.push("plugins");
+    Some(sys_path)
+}
+
+pub fn to_c_string(input: &str) -> CString {
+    let sanitized: String = input.chars().filter(|&c| c != '\0').collect();
+    CString::new(sanitized).unwrap_or_else(|_| CString::new("").unwrap())
+}
 
 pub fn safe_cstr_to_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
@@ -53,6 +79,19 @@ pub fn write_atomic(path: &std::path::Path, content: &[u8]) -> Result<(), std::i
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn test_to_c_string_strips_null_bytes() {
+        let cstr = to_c_string("hello\0world");
+        assert_eq!(cstr.to_str().unwrap(), "helloworld");
+    }
+
+    #[test]
+    fn test_get_plugins_dir_returns_plugins_suffix() {
+        if let Some(path) = get_plugins_dir() {
+            assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("plugins"));
+        }
+    }
 
     #[test]
     fn test_safe_cstr_to_string_valid() {
