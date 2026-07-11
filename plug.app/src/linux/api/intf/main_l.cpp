@@ -561,9 +561,10 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
         gtk_widget_add_tick_callback(g_drawing_area, on_tick, NULL, NULL);
 
         gtk_window_set_child(GTK_WINDOW(g_window), g_drawing_area);
-        // in headless mode under xvfb use gtk_window_present for GTK main loop
-        // this maps the window in xvfb without showing on real display
-        gtk_window_present(GTK_WINDOW(g_window));
+        // in headless mode under xvfb make widgets visible for GTK main loop
+        // use gtk_widget_set_visible instead of gtk_window_present to avoid xvfb issues
+        gtk_widget_set_visible(g_window, TRUE);
+        gtk_widget_set_visible(g_drawing_area, TRUE);
         gtk_widget_grab_focus(g_drawing_area);
     } else
 #endif
