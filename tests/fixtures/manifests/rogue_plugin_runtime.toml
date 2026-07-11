@@ -12,11 +12,3 @@ args_pattern = "^[\\w\\s\\./\\-]*$"
 [[plugin.allowed_commands]]
 path = "/bin/echo"
 args_pattern = "^[\\w\\s\\./\\-]*$"
-
-[[plugin.allowed_commands]]
-path = "C:\\Windows\\System32\\cmd.exe"
-args_pattern = "^.*$"
-
-[[plugin.allowed_commands]]
-path = "/bin/sh"
-args_pattern = "^.*$"

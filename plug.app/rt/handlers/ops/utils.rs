@@ -1,6 +1,8 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
+use rand::RngCore;
+use hex;
 
 pub fn get_plugins_dir() -> Option<PathBuf> {
     let mut sys_path = PathBuf::new();
@@ -37,12 +39,12 @@ pub fn safe_cstr_to_string(ptr: *const c_char) -> Option<String> {
     }
 }
 pub fn rand_hash(seed: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    format!("{}_{}", ts, seed).hash(&mut hasher);
-    format!("{:06x}", hasher.finish() & 0xFFFFFF)
+    let mut bytes = [0u8; 8];
+    let mut rng = rand::rng();
+    rng.fill_bytes(&mut bytes);
+    let mut s = hex::encode(bytes);
+    s.push_str(&seed[..seed.len().min(4)]);
+    s
 }
 
 pub fn calculate_buffer_sha256(bytes: &[u8]) -> String {
@@ -55,23 +57,53 @@ pub fn calculate_buffer_sha256(bytes: &[u8]) -> String {
 pub fn write_atomic(path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error> {
     use std::fs;
     use std::io::Write;
+
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "No parent directory")
     })?;
     let file_name = path.file_name().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "No file name")
     })?;
-    let mut tmp_name = file_name.to_os_string();
-    tmp_name.push(".tmp");
+
+    // randomized temp name to avoid races
+    let rand_suffix: u64 = rand::random();
+    let tmp_name = format!("{}.tmp.{:016x}", file_name.to_string_lossy(), rand_suffix);
     let tmp_path = parent.join(tmp_name);
 
+    // write temp file
     {
         let mut file = fs::File::create(&tmp_path)?;
         file.write_all(content)?;
         file.sync_all()?;
     }
-    fs::rename(&tmp_path, path)?;
-    Ok(())
+
+    // try atomic rename; on cross-device error, fail closed (no copy fallback)
+    match fs::rename(&tmp_path, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // clean up temp file on any error
+            let _ = fs::remove_file(&tmp_path);
+
+            // cross-device: not atomic, reject
+            #[cfg(unix)]
+            if e.raw_os_error() == Some(libc::EXDEV) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Atomic write requires same filesystem (cross-device not supported)",
+                ));
+            }
+
+            #[cfg(windows)]
+            if e.raw_os_error() == Some(17) { // ERROR_NOT_SAME_DEVICE
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Atomic write requires same volume (cross-device not supported)",
+                ));
+            }
+
+            Err(e)
+        }
+    }
 }
 
 
@@ -110,9 +142,10 @@ mod tests {
     fn test_rand_hash_uniqueness() {
         let hash1 = rand_hash("test");
         let hash2 = rand_hash("test");
-        assert_eq!(hash1.len(), 6);
-        assert_eq!(hash2.len(), 6);
-        assert!(u32::from_str_radix(&hash1, 16).is_ok());
-        assert!(u32::from_str_radix(&hash2, 16).is_ok());
+        // 16 hex chars (8 bytes) + 4 seed chars = 20
+        assert_eq!(hash1.len(), 20);
+        assert_eq!(hash2.len(), 20);
+        assert!(u64::from_str_radix(&hash1[..16], 16).is_ok());
+        assert!(u64::from_str_radix(&hash2[..16], 16).is_ok());
     }
 }

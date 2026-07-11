@@ -39,12 +39,13 @@ version = "1.0.0"
 author = "Dev"
 api_version = "xxx"
 permissions = [
-  "host_exec",         # Spawning local commands (CMD / PowerShell / shell)
-  "host_add_tab",      # Spawning new tabs
-  "host_set_tab_owner", # Taking tab ownership
-  "host_get_tab_label", # Reading active tab label
-  "get_env",           # Reading host environment variables
-  "net_post"           # HTTP POST requests from plugin runtime
+  "host_exec",           # Spawning local commands (allowlist-only, no shell)
+  "host_add_tab",        # Spawning new tabs
+  "host_set_tab_owner",  # Taking tab ownership
+  "host_get_tab_label",  # Reading active tab label
+  "host_get_platform",   # Detecting host OS (0=Windows, 1=Linux)
+  "get_env",             # Reading host environment variables
+  "net_post"             # HTTP POST requests (HTTPS only, no private IPs)
 ]
 ```
 
@@ -67,3 +68,34 @@ rustc --target wasm32-unknown-unknown \
       -C strip=symbols \
       -C link-arg=--allow-undefined
 ```
+
+
+---
+
+## Security Notes
+
+### WASI Imports
+The runtime **does not** expose the full WASI preview1 API. Only a safe subset is available (stdin/stdout/stderr, clocks, args, env stubs). Attempting to import blocked WASI functions (`path_open`, `sock_connect`, `proc_raise`, etc.) will cause plugin load failure.
+
+### Command Execution (`host_exec`)
+- No shell interpretation: commands run via `execvp`/`CreateProcess` with argv array directly
+- Allowlist-only: manifest must declare `allowed_commands` with canonical path + args regex
+- Example:
+```toml
+[[plugin]]
+# ... other fields ...
+allowed_commands = [
+  { path = "/usr/bin/git", args_pattern = "^(status|log|diff)" },
+  { path = "C:\\Program Files\\Git\\bin\\git.exe", args_pattern = "^(status|log|diff)" }
+]
+```
+
+### Network (`net_post`)
+- HTTPS only (HTTP rejected)
+- Private IPs blocked (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, link-local, multicast)
+- Response capped at 1 MiB
+- 30 second timeout
+
+### Filesystem
+- `cd` command restricted to current working directory jail
+- No direct filesystem WASI access exposed to plugins

@@ -50,6 +50,19 @@ static std::queue<CmdItem> g_cmd_queue;
 static std::atomic_bool g_cmd_thread_running{false};
 static std::thread g_headless_stdin_thread;
 
+struct PrintData {
+    int tab_idx;
+    std::string msg;
+    ColorRGB color;
+    bool is_continuation;
+};
+
+struct ReplaceLastLineData {
+    int tab_idx;
+    std::string msg;
+};
+
+
 static void headless_stdin_worker(void) {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -679,32 +692,30 @@ void main_l_cleanup(void) {
     if (g_app) {
         g_object_unref(g_app);
         g_app = NULL;
+        g_tabs[pd->tab_idx].wrapped_lines.clear();
     }
+    if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    delete pd;
 }
 
 void main_l_print_info(const char* msg) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (g_tabs.empty()) return;
+    if (!g_drawing_area) return;
     int target_tab = (g_print_tab != -1) ? g_print_tab : g_active_tab;
-    g_tabs[target_tab].raw_lines.push_back({msg, COL_OUTPUT, false});
-    g_tabs[target_tab].wrapped_lines.clear(); // force re-wrap next frame
-    if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    PrintData* pd = new PrintData{target_tab, msg ? msg : "", COL_OUTPUT, false};
+    g_idle_add(print_info_idle, pd);
 }
 
 void main_l_print_banner(void) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (g_tabs.empty()) return;
-    g_tabs[g_active_tab].raw_lines.push_back({"Welcome, " + std::string(g_sys_info_main.user_name) + "!", COL_USER, false});
-    g_tabs[g_active_tab].wrapped_lines.clear();
+    if (!g_drawing_area) return;
+    PrintData* pd = new PrintData{g_active_tab, "Welcome, " + std::string(g_sys_info_main.user_name) + "!", COL_USER, false};
+    g_idle_add(print_info_idle, pd);
 }
 
 void main_l_print_error(const char* msg) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (g_tabs.empty()) return;
+    if (!g_drawing_area) return;
     int target_tab = (g_print_tab != -1) ? g_print_tab : g_active_tab;
-    g_tabs[target_tab].raw_lines.push_back({msg, COL_CMD, false});
-    g_tabs[target_tab].wrapped_lines.clear();
-    if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    PrintData* pd = new PrintData{target_tab, msg ? msg : "", COL_CMD, false};
+    g_idle_add(print_info_idle, pd);
 }
 
 extern "C" {
@@ -731,7 +742,8 @@ void main_l_set_tab_cwd(int tab_idx, const char* cwd) {
     }
 }
 
-void main_l_add_tab(const char* owner) {
+static void add_tab_idle(gpointer data) {
+    const char* owner = static_cast<const char*>(data);
     std::lock_guard<std::mutex> lk(g_mutex);
     TabState new_tab;
     g_tab_counter++;
@@ -742,6 +754,13 @@ void main_l_add_tab(const char* owner) {
     g_tabs.push_back(new_tab);
     g_active_tab = g_tabs.size() - 1;
     if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    free(const_cast<char*>(owner)); // free the strdup'd string
+}
+
+void main_l_add_tab(const char* owner) {
+    if (!g_drawing_area) return;
+    char* owner_copy = owner ? strdup(owner) : nullptr;
+    g_idle_add(add_tab_idle, owner_copy);
 }
 
 int main_l_get_tab_owner(int tab_idx, char* buf, int max_len) {
@@ -754,14 +773,26 @@ int main_l_get_tab_owner(int tab_idx, char* buf, int max_len) {
     return 0;
 }
 
-void main_l_replace_last_line(const char* msg) {
+    int tab_idx;
+    std::string msg;
+};
+
+static void replace_last_line_idle(gpointer data) {
+    ReplaceLastLineData* d = static_cast<ReplaceLastLineData*>(data);
     std::lock_guard<std::mutex> lk(g_mutex);
-    if (g_tabs.empty()) return;
+    if (d->tab_idx >= 0 && d->tab_idx < (int)g_tabs.size() && !g_tabs[d->tab_idx].raw_lines.empty()) {
+        g_tabs[d->tab_idx].raw_lines.back().text = d->msg;
+        g_tabs[d->tab_idx].wrapped_lines.clear();
+        if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    }
+    delete d;
+}
+
+void main_l_replace_last_line(const char* msg) {
+    if (!g_drawing_area) return;
     int target_tab = (g_print_tab != -1) ? g_print_tab : g_active_tab;
-    if (g_tabs[target_tab].raw_lines.empty()) return;
-    g_tabs[target_tab].raw_lines.back().text = msg ? msg : "";
-    g_tabs[target_tab].wrapped_lines.clear();
-    if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    ReplaceLastLineData* d = new ReplaceLastLineData{target_tab, msg ? msg : ""};
+    g_idle_add(replace_last_line_idle, d);
 }
 
 void main_l_request_close(void) {
@@ -773,4 +804,3 @@ void main_l_request_close(void) {
 // satisfy llvm compiler-rt linking requirement on linux
 void __rust_probestack() {}
 
-}

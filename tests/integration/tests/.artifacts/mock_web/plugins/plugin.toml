@@ -1,0 +1,6 @@
+[plugin]
+name = "pTerm"
+version = "1.0.1"
+author = "plug"
+api_version = "0.1.2a"
+permissions = ["host_exec"]

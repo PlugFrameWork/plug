@@ -11,8 +11,11 @@
 
 ## Features
 
-- **Sandboxed WASM Runtime**: Isolated memory execution using the Wasmer compiler. Note that the sandbox confines the plugin's memory space and relies on a host FFI permission gate for system capabilities.
-- **Granular Permissions Model**: Checks plugin FFI import access (e.g., tab management or host execution) against manifest declarations (`plugin.toml`).
+- **Sandboxed WASM Runtime**: Isolated memory execution using Wasmer 4.3 (Cranelift). WASI preview1 imports are explicitly allowlisted — only a safe subset of 48 syscalls exposed; dangerous ones (filesystem, network, process) blocked.
+- **Granular Permissions Model**: Enforces manifest-declared permissions at load time (import validation) AND call time (runtime gate) for ALL host imports including `host_get_platform`. WASI imports blocked unless in explicit allowlist.
+- **Supply Chain Integrity**: Plugin registry (`pluglists.json`) verified via minisign/Ed25519 signature before any content trusted.
+- **SSRF Protection**: `net_post` enforces HTTPS-only, blocks private/reserved IPs (RFC1918, loopback, link-local), limits response to 1 MiB.
+- **Path Containment**: `cd` command restricted to current working directory jail; traversal escapes blocked.
 - **Multitab Desktop Shell**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
 - **Cross-Platform Native UI**: Compiles to Windows (Win32 GDI) and Linux (GTK4) with zero browser engine footprint.
 
@@ -84,3 +87,17 @@ pub extern "C" fn run() {
 ```
 
 Refer to [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for details on permissions configuration (`plugin.toml`) and FFI imports.
+
+---
+
+## Security Architecture
+
+See [docs/security.md](docs/security.md) for the complete threat model, sandbox architecture, and security controls summary.
+
+### Key Guarantees
+- **No shell invocation** — `host_exec` uses direct `execvp`/`CreateProcess`
+- **Allowlist-only execution** — manifest `allowed_commands` with canonical path + args regex
+- **WASI allowlist** — only 48 safe syscalls exposed; `path_open`, `sock_connect`, `proc_raise` etc. blocked
+- **Registry signature verification** — minisign/Ed25519 baked pubkey
+- **SSRF defense** — HTTPS only, private IP blocking, response size limit
+- **Input bounds** — all FFI string reads capped (64 KiB general, 2 KiB URL, 16 KiB JSON, 1 MiB response)

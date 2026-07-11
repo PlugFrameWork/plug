@@ -2,6 +2,46 @@ use std::fs;
 use std::env;
 use crate::ops::cmds::SESSION_PLUGINS;
 use crate::ops::host::{print_info, print_error};
+use minisign_verify::PublicKey;
+
+// minisign public key for registry signature verification (baked in at build time)
+// generated with: minisign -G -p pubkey.txt -s seckey.txt
+const REGISTRY_PUBKEY: &str = "RWQ1RT5+qW7vJ9ZK3mN8vL4pX2bC9yH6uM1wE8rT5oY=";
+
+fn verify_registry_signature(registry_path: &std::path::Path) -> Result<(), String> {
+    use std::fs;
+    
+    let sig_path = registry_path.with_extension("json.minisig");
+    
+    // download signature file if not present
+    if !sig_path.exists() {
+        let registry_url = std::env::var("PLUG_REGISTRY_URL").unwrap_or_else(|_| {
+            "https://raw.githubusercontent.com/PlugFrameWork/plug/trunk/pluglists.json".to_string()
+        });
+        let sig_url = format!("{}.minisig", registry_url);
+        let sig_path_str = sig_path.to_str().unwrap();
+        let hr = download_file_hr(&sig_url, sig_path_str);
+        if hr != 0 {
+            return Err("Failed to download registry signature file".into());
+        }
+    }
+    
+    let registry_content = fs::read(registry_path)
+        .map_err(|e| format!("Failed to read registry: {}", e))?;
+    let sig_content = fs::read(&sig_path)
+        .map_err(|e| format!("Failed to read signature: {}", e))?;
+    
+    let pubkey = PublicKey::from_base64(REGISTRY_PUBKEY)
+        .map_err(|e| format!("Invalid public key: {}", e))?;
+
+    let signature = minisign_verify::Signature::decode(&String::from_utf8_lossy(&sig_content))
+        .map_err(|e| format!("Invalid signature format: {}", e))?;
+
+    pubkey.verify(&registry_content, &signature, true)
+        .map_err(|e| format!("Registry signature verification failed: {}", e))?;
+    
+    Ok(())
+}
 
 #[derive(serde::Deserialize)]
 pub struct CloudPlugin {
@@ -88,13 +128,21 @@ pub fn c_check(_args: *const i8) -> i32 {
     }
 
     if ok {
+        // verify registry signature before trusting any content
+        let registry_path = std::path::Path::new(temp_path);
+        if let Err(e) = verify_registry_signature(registry_path) {
+            print_error(&format!("[SECURITY] Registry verification failed: {}", e));
+            let _ = fs::remove_file(temp_path);
+            return -1;
+        }
+        
         if let Ok(content) = fs::read_to_string(temp_path) {
             let mut session = SESSION_PLUGINS.lock().unwrap();
             session.clear();
 
             match serde_json::from_str::<CloudRepo>(&content) {
                 Ok(repo) => {
-                    print_info(&format!("Plug Registry v{}", repo.repo_version));
+                    print_info(&format!("Plug Registry v{} [VERIFIED]", repo.repo_version));
                     let loaded_info = crate::ops::plugin_mgr::get_loaded_plugins_info();
                     for p in repo.plugins {
                         let hash = crate::ops::utils::rand_hash(&p.name);

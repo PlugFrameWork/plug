@@ -28,4 +28,16 @@ The framework splits operations into two layers connected via C FFI:
 
 Inputs starting with `/` invoke built-in commands (e.g., `/tab` or `/plug`). Other inputs are dispatched to the WASM plugin owning the active tab.
 
-If a plugin requests access to sensitive FFI imports (such as `host_exec` to run local shell subprocesses, `get_env` to read environment variables, or `net_post` for outbound HTTP), the runtime validates its manifest permissions list (`plugin.toml`) at load time and again at call time before delegating to the host OS.
+If a plugin requests access to sensitive FFI imports (such as `host_exec` to run local shell subprocesses, `get_env` to read environment variables, `net_post` for outbound HTTP, or `host_get_platform` to detect host OS), the runtime validates its manifest permissions list (`plugin.toml`) at load time (import validation) and again at call time (runtime gate) before delegating to the host OS.
+
+### WASI Sandbox Enforcement
+The `wasi_snapshot_preview1` import namespace is **not** automatically exposed. Only an explicit allowlist of safe WASI functions is provided (see `plugin_mgr.rs:ALLOWED_WASI`). Dangerous syscalls (`path_open`, `sock_connect`, `proc_raise`, `random_get`, etc.) are blocked at module load time regardless of manifest.
+
+### Supply Chain Security
+Plugin registry (`pluglists.json`) is verified via minisign/Ed25519 signature (public key baked in binary) before any plugin metadata or hashes are trusted. Downloaded WASM is verified against registry-pinned SHA256.
+
+### Network Hardening
+`net_post` enforces: HTTPS-only scheme, private/reserved IP blocking (RFC1918, loopback, link-local, multicast), 1 MiB response size limit, 30s timeout.
+
+### Filesystem Containment
+`cd` command handler resolves target via `canonicalize` then verifies result stays within process CWD jail. Traversal attempts (`../../etc`) are rejected.
