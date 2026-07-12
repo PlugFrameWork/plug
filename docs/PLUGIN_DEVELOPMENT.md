@@ -68,8 +68,6 @@ rustc --target wasm32-unknown-unknown \
       -C strip=symbols \
       -C link-arg=--allow-undefined
 ```
-
-
 ---
 
 ## Security Notes

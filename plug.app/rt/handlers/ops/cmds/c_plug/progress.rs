@@ -1,9 +1,27 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::time::{Instant, Duration};
-use crate::ops::host::print_info;
+use crate::ops::host::{print_info, print_error};
+
+// re-export enforce_https to avoid circular dep with check/mod.rs
+// both download_file_hr and download_with_progress must enforce HTTPS
+fn enforce_https(url: &str) -> Result<(), String> {
+    use url::Url;
+    let parsed = Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err("Only HTTPS downloads are allowed".into());
+    }
+    Ok(())
+}
 
 pub fn download_with_progress(url: &str, dest_path: &str, silent: bool) -> bool {
+    // enforce HTTPS for all external downloads
+    if let Err(e) = enforce_https(url) {
+        if !silent {
+            print_error(&format!("[SECURITY] {}", e));
+        }
+        return false;
+    }
     let agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     let req = ureq::get(url).set("User-Agent", agent);
     let response = match req.call() {

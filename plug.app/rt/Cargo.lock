@@ -1462,6 +1462,7 @@ name = "tm_main"
 version = "1.0.0"
 dependencies = [
  "hex",
+ "libc",
  "minisign-verify",
  "once_cell",
  "rand",

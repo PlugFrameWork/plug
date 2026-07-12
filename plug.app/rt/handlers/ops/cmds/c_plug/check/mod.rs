@@ -3,10 +3,21 @@ use std::env;
 use crate::ops::cmds::SESSION_PLUGINS;
 use crate::ops::host::{print_info, print_error};
 use minisign_verify::PublicKey;
+use url::Url;
 
 // minisign public key for registry signature verification (baked in at build time)
 // generated with: minisign -G -p pubkey.txt -s seckey.txt
 const REGISTRY_PUBKEY: &str = "RWQ1RT5+qW7vJ9ZK3mN8vL4pX2bC9yH6uM1wE8rT5oY=";
+
+/// enforce HTTPS scheme for registry/WASM downloads (defense in depth)
+/// returns Ok(()) if URL uses HTTPS, Err with message otherwise
+fn enforce_https(url: &str) -> Result<(), String> {
+    let parsed = Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err("Registry/WASM downloads require HTTPS".into());
+    }
+    Ok(())
+}
 
 fn verify_registry_signature(registry_path: &std::path::Path) -> Result<(), String> {
     use std::fs;
@@ -19,6 +30,12 @@ fn verify_registry_signature(registry_path: &std::path::Path) -> Result<(), Stri
             "https://raw.githubusercontent.com/PlugFrameWork/plug/trunk/pluglists.json".to_string()
         });
         let sig_url = format!("{}.minisig", registry_url);
+
+        // enforce HTTPS for signature download too (same transport channel as registry)
+        if let Err(e) = enforce_https(&sig_url) {
+            return Err(e);
+        }
+
         let sig_path_str = sig_path.to_str().unwrap();
         let hr = download_file_hr(&sig_url, sig_path_str);
         if hr != 0 {
@@ -52,6 +69,8 @@ pub struct CloudPlugin {
     pub official: bool,
     #[serde(default)]
     pub sha256: Option<String>,
+    #[serde(default)]
+    pub permissions_hash: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -73,6 +92,11 @@ fn compare_versions(registry: &str, local: &str) -> bool {
 }
 
 pub fn download_file_hr(url: &str, dest: &str) -> i32 {
+    // enforce HTTPS for all external downloads
+    if let Err(e) = enforce_https(url) {
+        print_error(&format!("[SECURITY] {}", e));
+        return -1;
+    }
     let req = ureq::get(url)
         .set("Cache-Control", "no-cache")
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -146,7 +170,7 @@ pub fn c_check(_args: *const i8) -> i32 {
                     let loaded_info = crate::ops::plugin_mgr::get_loaded_plugins_info();
                     for p in repo.plugins {
                         let hash = crate::ops::utils::rand_hash(&p.name);
-                        session.insert(hash.clone(), (p.name.clone(), p.sha256.clone().unwrap_or_default()));
+                        session.insert(hash.clone(), (p.name.clone(), p.sha256.clone().unwrap_or_default(), p.permissions_hash.clone()));
                         let off_tag = if p.official { "[Official]" } else { "" };
                         let mut status_tag = String::new();
                         if let Some((_, _, local_ver)) = loaded_info.iter().find(|(n, _, _)| *n == p.name) {

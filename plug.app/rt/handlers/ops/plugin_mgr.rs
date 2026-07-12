@@ -9,7 +9,8 @@ use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use toml;
 use crate::ops::host::{
     print_info, print_error,
     add_tab, set_tab_cwd, set_tab_owner,
@@ -34,7 +35,7 @@ thread_local! {
     static CURRENT_ARGS: RefCell<String> = RefCell::new(String::new());
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct AllowedCommand {
     pub path: String,
     pub args_pattern: String,
@@ -94,6 +95,13 @@ pub struct PluginManifest {
 #[derive(Deserialize, Clone, Debug)]
 pub struct SinglePluginManifest {
     pub plugin: Manifest,
+}
+
+// TOML format for .integrity sidecar (SEC-008)
+#[derive(Deserialize)]
+struct IntegrityToml {
+    wasm_sha256: String,
+    permissions_hash: Option<String>,
 }
 
 pub struct Plugin {
@@ -233,7 +241,10 @@ pub fn init_plugins(plugins_dir: &str) {
                         if wasm_path.exists() {
                             if let Ok(bytes) = fs::read(&wasm_path) {
                                 let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&bytes);
-                                if let Err(e) = crate::ops::utils::write_atomic(&integrity_path, sha256_hex.as_bytes()) {
+                                // write in TOML format with wasm_sha256 only (permissions_hash comes
+                                // from registry install, not from migration)
+                                let integrity_content = format!("wasm_sha256 = \"{}\"\n", sha256_hex);
+                                if let Err(e) = crate::ops::utils::write_atomic(&integrity_path, integrity_content.as_bytes()) {
                                     print_error(&format!("Migration failed to write integrity file for {}: {}", name, e));
                                 } else {
                                     print_info(&format!("[SECURITY-WARNING] Generated integrity file for pre-existing plugin: {}", name));
@@ -320,9 +331,32 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
         if !integrity_path.exists() {
             return Err(format!("[SECURITY] Missing integrity sidecar for {}", name).into());
         }
-        let expected_hash = fs::read_to_string(&integrity_path)?.trim().to_string();
-        if expected_hash != sha256_hex {
+
+        // SEC-008: parse integrity file — support TOML format (wasm_sha256 + permissions_hash)
+        // fall back to legacy single-line SHA256 hex
+        let integrity_raw = fs::read_to_string(&integrity_path)?.trim().to_string();
+        let (expected_wasm_hash, expected_perms_hash) = if integrity_raw.starts_with("wasm_sha256") {
+            // TOML format
+            match toml::from_str::<IntegrityToml>(&integrity_raw) {
+                Ok(t) => (t.wasm_sha256, t.permissions_hash),
+                Err(_) => return Err(format!("[SECURITY] Corrupt integrity file for {}", name).into()),
+            }
+        } else {
+            // legacy single-line SHA256
+            (integrity_raw, None)
+        };
+
+        if expected_wasm_hash != sha256_hex {
             return Err(format!("[SECURITY] Integrity mismatch for {}", name).into());
+        }
+
+        // SEC-008: if integrity pins permissions_hash, compute current manifest permissions hash
+        // and compare. fail-closed on mismatch — manifest may have been tampered.
+        if let Some(ref pinned_perms_hash) = expected_perms_hash {
+            let current_perms_hash = crate::ops::utils::calculate_permissions_hash(manifest);
+            if current_perms_hash != *pinned_perms_hash {
+                return Err(format!("[SECURITY] Permissions hash mismatch for {} (manifest may have been tampered)", name).into());
+            }
         }
     }
 

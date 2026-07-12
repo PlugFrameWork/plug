@@ -54,6 +54,37 @@ pub fn calculate_buffer_sha256(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// compute SHA256 of canonical manifest permissions + allowed_commands
+/// used for permission pinning (SEC-008)
+pub fn calculate_permissions_hash(manifest: &crate::ops::plugin_mgr::Manifest) -> String {
+    use sha2::{Sha256, Digest};
+    use serde::Serialize;
+
+    // canonical representation: permissions sorted + allowed_commands sorted by path then args_pattern
+    #[derive(Serialize)]
+    struct PermissionsSnapshot {
+        permissions: Vec<String>,
+        allowed_commands: Vec<crate::ops::plugin_mgr::AllowedCommand>,
+    }
+
+    let mut perms = manifest.permissions.clone();
+    perms.sort();
+
+    let mut cmds = manifest.allowed_commands.clone().unwrap_or_default();
+    cmds.sort_by(|a, b| a.path.cmp(&b.path).then(a.args_pattern.cmp(&b.args_pattern)));
+
+    let snapshot = PermissionsSnapshot {
+        permissions: perms,
+        allowed_commands: cmds,
+    };
+
+    // serialize as JSON for canonical form
+    let json = serde_json::to_vec(&snapshot).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(&json);
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn write_atomic(path: &std::path::Path, content: &[u8]) -> Result<(), std::io::Error> {
     use std::fs;
     use std::io::Write;
@@ -86,11 +117,14 @@ pub fn write_atomic(path: &std::path::Path, content: &[u8]) -> Result<(), std::i
 
             // cross-device: not atomic, reject
             #[cfg(unix)]
-            if e.raw_os_error() == Some(libc::EXDEV) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Atomic write requires same filesystem (cross-device not supported)",
-                ));
+            {
+                use libc;
+                if e.raw_os_error() == Some(libc::EXDEV) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Atomic write requires same filesystem (cross-device not supported)",
+                    ));
+                }
             }
 
             #[cfg(windows)]

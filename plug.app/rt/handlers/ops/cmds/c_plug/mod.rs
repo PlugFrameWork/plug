@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::fs;
+use toml;
 use crate::ops::cmds::SESSION_PLUGINS;
 use crate::ops::host::{print_info, print_error};
 
@@ -18,10 +19,10 @@ pub fn c_plug(args: *const i8) -> i32 {
         return -1;
     }
 
-    let (plugin_name, registry_sha256) = {
+    let (plugin_name, registry_sha256, registry_permissions_hash) = {
         let session = SESSION_PLUGINS.lock().unwrap();
         match session.get(&hash) {
-            Some((name, sha)) => (name.clone(), sha.clone()),
+            Some((name, sha, perm_hash)) => (name.clone(), sha.clone(), perm_hash.clone()),
             None => {
                 print_error("Invalid or expired hash. Run /plug* to get a fresh list.");
                 return -1;
@@ -34,10 +35,10 @@ pub fn c_plug(args: *const i8) -> i32 {
         .trim_end_matches(".wasm")
         .to_string();
 
-    install_plugin_manually(&clean_name, &hash, &registry_sha256, false)
+    install_plugin_manually(&clean_name, &hash, &registry_sha256, registry_permissions_hash.as_deref(), false)
 }
 
-pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sha256: &str, silent: bool) -> i32 {
+pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sha256: &str, registry_permissions_hash: Option<&str>, silent: bool) -> i32 {
     if !silent {
         print_info(&format!("Downloading: {}.plug...", clean_name));
     }
@@ -167,9 +168,55 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
                 return -1;
             }
 
+            // generate integrity data in TOML format: wasm_sha256 + permissions_hash
             let mut dest_integrity = dest_dir.clone();
             dest_integrity.push(format!("{}.integrity", clean_name));
-            if let Err(e) = crate::ops::utils::write_atomic(&dest_integrity, sha256_hex.as_bytes()) {
+
+            // parse the downloaded manifest to compute permissions hash
+            let computed_perms_hash = if let Ok(content) = fs::read_to_string(&tmp_toml) {
+                if let Ok(pm) = toml::from_str::<crate::ops::plugin_mgr::PluginManifest>(&content) {
+                    if let Some(manifest) = pm.plugin.iter().find(|m| m.name == clean_name) {
+                        Some(crate::ops::utils::calculate_permissions_hash(manifest))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let perms_hash_valid = match (computed_perms_hash.as_deref(), registry_permissions_hash) {
+                (Some(computed), Some(registry)) => {
+                    if computed != registry {
+                        print_error(&format!("[SECURITY] Registry permissions hash mismatch for plugin: {} (Expected: {}, Found: {})", clean_name, registry, computed));
+                        let _ = fs::remove_file(&dest_wasm);
+                        let _ = fs::remove_file(&dest_toml);
+                        return -1;
+                    }
+                    Some(registry.to_string())
+                }
+                (Some(_), None) => {
+                    print_info(&format!("[WARN] Registry missing permissions_hash for plugin: {}. Permissions not pinned.", clean_name));
+                    None
+                }
+                (None, Some(_)) => {
+                    print_error(&format!("[SECURITY] Failed to compute permissions hash from manifest for: {}", clean_name));
+                    let _ = fs::remove_file(&dest_wasm);
+                    let _ = fs::remove_file(&dest_toml);
+                    return -1;
+                }
+                (None, None) => None,
+            };
+
+            // write integrity TOML
+            let integrity_content = if let Some(ref ph) = perms_hash_valid {
+                format!("wasm_sha256 = \"{}\"\npermissions_hash = \"{}\"\n", sha256_hex, ph)
+            } else {
+                format!("wasm_sha256 = \"{}\"\n", sha256_hex)
+            };
+            if let Err(e) = crate::ops::utils::write_atomic(&dest_integrity, integrity_content.as_bytes()) {
                 print_error(&format!("Failed to write integrity file: {}", e));
             }
 

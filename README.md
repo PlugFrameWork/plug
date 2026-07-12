@@ -95,8 +95,7 @@ Refer to [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for details on
 See [docs/security.md](docs/security.md) for the complete threat model, sandbox architecture, and security controls summary.
 
 ### Key Guarantees
-- **No shell invocation** — `host_exec` uses direct `execvp`/`CreateProcess`
-- **Allowlist-only execution** — manifest `allowed_commands` with canonical path + args regex
+- **Untrusted plugins: no shell invocation** — `host_exec` resolves canonical binary path and executes directly via `execvp`/`CreateProcess`, validated against manifest `allowed_commands` allowlist. **Trusted plugins (e.g. pTerm): bypass this gate entirely by design** — see [docs/PLUGINS/CATALOG/pTerm.md](docs/PLUGINS/CATALOG/pTerm.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **WASI allowlist** — only 48 safe syscalls exposed; `path_open`, `sock_connect`, `proc_raise` etc. blocked
 - **Registry signature verification** — minisign/Ed25519 baked pubkey
 - **SSRF defense** — HTTPS only, private IP blocking, response size limit
