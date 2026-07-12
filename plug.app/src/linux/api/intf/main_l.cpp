@@ -692,10 +692,8 @@ void main_l_cleanup(void) {
     if (g_app) {
         g_object_unref(g_app);
         g_app = NULL;
-        g_tabs[pd->tab_idx].wrapped_lines.clear();
     }
     if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
-    delete pd;
 }
 
 void main_l_print_info(const char* msg) {
@@ -742,7 +740,31 @@ void main_l_set_tab_cwd(int tab_idx, const char* cwd) {
     }
 }
 
-static void add_tab_idle(gpointer data) {
+static gboolean print_info_idle(gpointer data) {
+    PrintData* pd = static_cast<PrintData*>(data);
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (pd->tab_idx >= 0 && pd->tab_idx < (int)g_tabs.size()) {
+        g_tabs[pd->tab_idx].raw_lines.push_back({pd->msg, pd->color, pd->is_continuation});
+        g_tabs[pd->tab_idx].wrapped_lines.clear();
+        if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    }
+    delete pd;
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean print_info_idle(gpointer data) {
+    PrintData* pd = static_cast<PrintData*>(data);
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (pd->tab_idx >= 0 && pd->tab_idx < (int)g_tabs.size()) {
+        g_tabs[pd->tab_idx].raw_lines.push_back({pd->msg, pd->color, pd->is_continuation});
+        g_tabs[pd->tab_idx].wrapped_lines.clear();
+        if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
+    }
+    delete pd;
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean add_tab_idle(gpointer data) {
     const char* owner = static_cast<const char*>(data);
     std::lock_guard<std::mutex> lk(g_mutex);
     TabState new_tab;
@@ -755,6 +777,7 @@ static void add_tab_idle(gpointer data) {
     g_active_tab = g_tabs.size() - 1;
     if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
     free(const_cast<char*>(owner)); // free the strdup'd string
+    return G_SOURCE_REMOVE;
 }
 
 void main_l_add_tab(const char* owner) {
@@ -777,7 +800,7 @@ int main_l_get_tab_owner(int tab_idx, char* buf, int max_len) {
     std::string msg;
 };
 
-static void replace_last_line_idle(gpointer data) {
+static gboolean replace_last_line_idle(gpointer data) {
     ReplaceLastLineData* d = static_cast<ReplaceLastLineData*>(data);
     std::lock_guard<std::mutex> lk(g_mutex);
     if (d->tab_idx >= 0 && d->tab_idx < (int)g_tabs.size() && !g_tabs[d->tab_idx].raw_lines.empty()) {
@@ -786,6 +809,7 @@ static void replace_last_line_idle(gpointer data) {
         if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
     }
     delete d;
+    return G_SOURCE_REMOVE;
 }
 
 void main_l_replace_last_line(const char* msg) {
