@@ -360,7 +360,7 @@ name = "pTerm"
 version = "1.0.1"
 author = "plug"
 api_version = "0.1.2a"
-permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label", "host_get_platform"]
 """)
 
         # setup plugin in sandbox without .integrity file
@@ -435,7 +435,7 @@ name = "pTerm"
 version = "1.0.1"
 author = "plug"
 api_version = "0.1.2a"
-permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
+permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label", "host_get_platform"]
 """)
 
         # setup pterm in sandbox but using corrupted/tampered bytes (using ok_plugin.wasm)
@@ -586,7 +586,7 @@ permissions = ["host_exec"]
                     if not line:
                         break
                     lines.append(line)
-                    match = re.search(r"\[([a-f0-9]{6})\] pTerm", line)
+                    match = re.search(r"\[([^\]]+)\] pTerm", line)
                     if match:
                         session_hash = match.group(1)
                         break

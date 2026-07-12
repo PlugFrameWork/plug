@@ -55,7 +55,7 @@ pub fn calculate_buffer_sha256(bytes: &[u8]) -> String {
 }
 
 /// compute SHA256 of canonical manifest permissions + allowed_commands
-/// used for permission pinning (SEC-008)
+/// used for permission pinning
 pub fn calculate_permissions_hash(manifest: &crate::ops::plugin_mgr::Manifest) -> String {
     use sha2::{Sha256, Digest};
     use serde::Serialize;

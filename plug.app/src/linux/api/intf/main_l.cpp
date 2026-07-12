@@ -742,6 +742,8 @@ void main_l_set_tab_cwd(int tab_idx, const char* cwd) {
     }
 }
 
+} // extern "C"
+
 static gboolean print_info_idle(gpointer data) {
     PrintData* pd = static_cast<PrintData*>(data);
     std::lock_guard<std::mutex> lk(g_mutex);
@@ -770,6 +772,8 @@ static gboolean add_tab_idle(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+extern "C" {
+
 void main_l_add_tab(const char* owner) {
     if (!g_drawing_area) return;
     char* owner_copy = owner ? strdup(owner) : nullptr;
@@ -786,9 +790,7 @@ int main_l_get_tab_owner(int tab_idx, char* buf, int max_len) {
     return 0;
 }
 
-    int tab_idx;
-    std::string msg;
-};
+} // extern "C"
 
 static gboolean replace_last_line_idle(gpointer data) {
     ReplaceLastLineData* d = static_cast<ReplaceLastLineData*>(data);
@@ -801,6 +803,8 @@ static gboolean replace_last_line_idle(gpointer data) {
     delete d;
     return G_SOURCE_REMOVE;
 }
+
+extern "C" {
 
 void main_l_replace_last_line(const char* msg) {
     if (!g_drawing_area) return;
@@ -818,3 +822,4 @@ void main_l_request_close(void) {
 // satisfy llvm compiler-rt linking requirement on linux
 void __rust_probestack() {}
 
+} // extern "C"

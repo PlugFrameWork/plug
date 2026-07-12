@@ -97,7 +97,7 @@ pub struct SinglePluginManifest {
     pub plugin: Manifest,
 }
 
-// TOML format for .integrity sidecar (SEC-008)
+// TOML format for .integrity sidecar
 #[derive(Deserialize)]
 struct IntegrityToml {
     wasm_sha256: String,
@@ -332,7 +332,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             return Err(format!("[SECURITY] Missing integrity sidecar for {}", name).into());
         }
 
-        // SEC-008: parse integrity file — support TOML format (wasm_sha256 + permissions_hash)
+        // parse integrity file — support TOML format (wasm_sha256 + permissions_hash)
         // fall back to legacy single-line SHA256 hex
         let integrity_raw = fs::read_to_string(&integrity_path)?.trim().to_string();
         let (expected_wasm_hash, expected_perms_hash) = if integrity_raw.starts_with("wasm_sha256") {
@@ -350,7 +350,7 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             return Err(format!("[SECURITY] Integrity mismatch for {}", name).into());
         }
 
-        // SEC-008: if integrity pins permissions_hash, compute current manifest permissions hash
+        // if integrity pins permissions_hash, compute current manifest permissions hash
         // and compare. fail-closed on mismatch — manifest may have been tampered.
         if let Some(ref pinned_perms_hash) = expected_perms_hash {
             let current_perms_hash = crate::ops::utils::calculate_permissions_hash(manifest);

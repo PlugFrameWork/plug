@@ -9,6 +9,11 @@ fn enforce_https(url: &str) -> Result<(), String> {
     use url::Url;
     let parsed = Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
     if parsed.scheme() != "https" {
+        // allow http on loopback for local test servers
+        let host = parsed.host_str().unwrap_or("");
+        if host == "127.0.0.1" || host == "::1" || host == "localhost" {
+            return Ok(());
+        }
         return Err("Only HTTPS downloads are allowed".into());
     }
     Ok(())

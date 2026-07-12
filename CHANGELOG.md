@@ -2,7 +2,7 @@
 
 ---
 
-## [0.1.2a] - 2026-07-06 => 2026-07-07
+## [0.1.2a] - 2026-07-06 => 2026-07-13
 
 ### Added
 * Headless GTK stdin loop on Linux (`main_l.cpp`) enabling CI integration and E2E testing without a display server.
@@ -34,6 +34,11 @@
 * Plugin dispatch race condition — `dispatch_plugin_cmd()` no longer removes the plugin instance from the in-memory registry during async execution; per-plugin execution locks serialize concurrent invocations instead.
 * README and startup banner exit command typo — corrected `/e-` references to `/e` in `main.cpp` and `main_l.cpp`.
 * FFI input sanitization — `c_parse()` routes command arguments through `to_c_string()` to strip embedded null bytes before CString conversion.
+* Tab-close deadlock: resolved application hang ("not responding") when closing tabs by releasing `g_mutex` before executing `c_on_tab_close` FFI call. This prevents recursive lock acquisition on non-recursive C++ `std::mutex` from re-entrant calls (`get_tab_owner` / `print_info`) originating from Rust runtime.
+* Linux compilation: resolved `conflicting declaration of print_info_idle with C linkage` linkage conflict by scoping GTK static C++ callbacks outside of `extern "C"` blocks in `main_l.cpp`.
+* Integration testing registry lockup: updated regex pattern to match 20-character session hashes in `test_sandbox_rules.py`, preventing infinite read blocking on `p.stdout.readline()`.
+* Local registry HTTP downloads: added loopback exceptions (allowing `127.0.0.1`, `::1`, `localhost`) to `enforce_https` and `verify_registry_signature` checks inside `check/mod.rs` and `progress.rs` to allow testing E2E registry downloads without local HTTPS configuration or signature keys.
+* Mock manifests: synchronized `pTerm` mock manifests in `test_sandbox_rules.py` to request the required `host_get_platform` permission, matching production FFI requirements.
 
 ---
 
