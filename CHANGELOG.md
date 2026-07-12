@@ -2,7 +2,14 @@
 
 ---
 
-## [0.1.2a] - 2026-07-06 => 2026-07-13
+## [0.1.2a] - 2026-07-13
+
+### Security
+* Registry downloads now enforce HTTPS (prevents MITM on plugin/registry transport)
+* Plugin permissions are now cryptographically pinned to the registry at install-time and re-verified at every load, preventing local manifest tampering from silently escalating a plugin's capabilities
+* Fixed TOCTOU race in atomic file writes on cross-device filesystems (fail-closed instead of non-atomic copy fallback)
+* Removed unauthorized shell interpreter (`dash`) from the untrusted plugin execution allowlist
+* Registry trust validation check by trimming whitespace inside compile-time `TRUSTED_PLUGIN_HASHES` array comparisons
 
 ### Added
 * Headless GTK stdin loop on Linux (`main_l.cpp`) enabling CI integration and E2E testing without a display server.
@@ -21,7 +28,7 @@
 * Registry trust validation check by trimming whitespace inside compile-time `TRUSTED_PLUGIN_HASHES` array comparisons.
 * Error reporting inside `verify_production_binary_clean` to distinguish missing binaries from forbidden-symbol leaks.
 * Unused Windows-only `CommandExt` import in `plugin_mgr.rs` correctly scoped under `#[cfg(windows)]` to prevent cross-platform compiler warnings.
-* Improved plugin sandbox security by integrating plugin installation with global integrity verification and removing unsafe `eval()` in plugin initialization.
+* Removed unsafe dynamic code evaluation in plugin initialization
 * Fixed Linux CI build errors caused by MSVC-specific `/DELAYLOAD` pragmas in linker commands.
 * Linux production linker `undefined reference to 'g_headless_mode'` — guarded `extern "C"` declaration in `main_l.cpp` under `#ifdef PLUG_ENABLE_HEADLESS_MODE`; production builds now use `static constexpr bool g_headless_mode = false` with zero runtime cost.
 * GCC `-Wextern-initializer` warning in `main.cpp` — changed `extern "C" bool g_headless_mode = false` to block-form `extern "C" { bool g_headless_mode = false; }`.
