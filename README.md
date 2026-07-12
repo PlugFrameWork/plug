@@ -57,13 +57,12 @@ cd plug.cross/linux && ./make.sh
 | `/?` | None | Displays help details. |
 | `/a` | None | Displays system environment and memory statistics. |
 | `/tab` | None | Spawns a new workspace tab. |
-| `/cmd` | `[query]` | Spawns a Windows Command Prompt tab or executes a CMD query. |
-| `/ps` | `[query]` | Spawns a Windows PowerShell tab or executes a PowerShell query. |
-| `/sh` | `[query]` | Spawns a Linux shell tab or executes a shell query. |
 | `/plug*` | None | Lists available online registry plugins and hashes. |
 | `/plug` | `[hash]` | Downloads and initializes a plugin. |
 | `/plug-` | `[hash]` | Unloads the specified plugin. |
 | `/e` | None | Exits the application. |
+
+> See [All plugins command reference](docs/PLUGINS/README.md) for details.
 
 ---
 

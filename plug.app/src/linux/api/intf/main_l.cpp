@@ -22,6 +22,8 @@
 #include <condition_variable>
 #include <atomic>
 
+static gboolean print_info_idle(gpointer data);
+
 ui_state_l_t g_main_l_state = {0};
 GtkWidget* g_drawing_area = NULL;
 static GtkApplication* g_app = NULL;
@@ -738,18 +740,6 @@ void main_l_set_tab_cwd(int tab_idx, const char* cwd) {
     if (tab_idx >= 0 && tab_idx < g_tabs.size()) {
         g_tabs[tab_idx].cwd = cwd ? cwd : "";
     }
-}
-
-static gboolean print_info_idle(gpointer data) {
-    PrintData* pd = static_cast<PrintData*>(data);
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (pd->tab_idx >= 0 && pd->tab_idx < (int)g_tabs.size()) {
-        g_tabs[pd->tab_idx].raw_lines.push_back({pd->msg, pd->color, pd->is_continuation});
-        g_tabs[pd->tab_idx].wrapped_lines.clear();
-        if (g_drawing_area) gtk_widget_queue_draw(g_drawing_area);
-    }
-    delete pd;
-    return G_SOURCE_REMOVE;
 }
 
 static gboolean print_info_idle(gpointer data) {
