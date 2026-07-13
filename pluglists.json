@@ -7,7 +7,8 @@
       "version": "1.0.1",
       "description": "Terminal environment",
       "official": true,
-      "sha256": "9ada6ad5b1026e126bfc212364d1ad9876c0d280b6477498d8a2220e99091f14"
+      "sha256": "9ada6ad5b1026e126bfc212364d1ad9876c0d280b6477498d8a2220e99091f14",
+      "permissions_hash": "720a9274182703a8dcb78f5f93fdd21332b0e71294834d6780bc76756c17095f"
     }
   ]
 }
