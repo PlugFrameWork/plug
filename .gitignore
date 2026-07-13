@@ -93,6 +93,9 @@ secrets.*
 *password*
 auth.json
 token.json
+# minisign private keys (never commit)
+seckey*.txt
+*seckey*
 
 # ── upx ──────────────────────────────────────────────────────────────────────
 *.upx
