@@ -15,28 +15,6 @@
 - **Local attacker**: Code execution on host machine
 - **Network attacker**: MITM on plugin download
 
-### Trust Boundaries
-```
-┌─────────────────────────────────────────────────────┐
-│                   HOST OS                            │
-│  ┌─────────────────────────────────────────────┐    │
-│  │           PLUG RUNTIME (Rust)                │    │
-│  │  ┌─────────────────────────────────────┐    │    │
-│  │  │      │  │      WASM SANDBOX (Wasmer)           │    │    │
-│ │  │  - Linear memory (isolated)          │    │    │
-│ │  │  - No direct syscalls                │    │    │
-│ │  │  - Host imports ONLY via FFI gate    │    │    │
-│      └─────────────────────────────────────┘    │
-│  │  ┌─────────────────────────────────────┐    │    │
-│  │  │     PERMISSION GATE                  │    │    │
-│  │  │  - Load-time import validation       │    │    │
-│  │  │  - Call-time runtime checks          │    │    │
-│  │  │  - WASI allowlist enforcement        │    │    │
-│  │  └─────────────────────────────────────┘    │
-│  └─────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────┘
-```
-
 ## Security Controls
 
 ### 1. WASM Sandbox (Wasmer 4.3 Cranelift)

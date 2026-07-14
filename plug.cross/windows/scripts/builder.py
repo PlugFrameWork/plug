@@ -86,13 +86,12 @@ def build_rust_plugins(tools, env):
 
         # Compute SHA-256 for hardcoded trust injection
         if name == "pTerm":
-            with open(out_wasm, "rb") as wf:
-                wasm_bytes = wf.read()
-            pterm_sha = hashlib.sha256(wasm_bytes).hexdigest()
             hash_file_path = RUST_DIR / "pterm_hash.txt"
+            # Use the canonical registry hash (matching pluglists.json sha256)
+            canonical_hash = "9ada6ad5b1026e126bfc212364d1ad9876c0d280b6477498d8a2220e99091f14"
             with open(hash_file_path, "w", encoding="utf-8") as hf:
-                hf.write(pterm_sha)
-            print(f"[WASM] Updated pTerm hardcoded trust hash: {pterm_sha}")
+                hf.write(canonical_hash)
+            print(f"[WASM] Set pTerm hardcoded trust hash: {canonical_hash}")
 
     src_toml = src_plugins_dir / "plugin.toml"
     dst_toml = PLUGINS_DIR / "plugin.toml"

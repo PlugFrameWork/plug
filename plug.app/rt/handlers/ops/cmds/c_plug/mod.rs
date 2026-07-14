@@ -173,7 +173,7 @@ pub fn install_plugin_manually(clean_name: &str, session_hash: &str, registry_sh
             dest_integrity.push(format!("{}.integrity", clean_name));
 
             // parse the downloaded manifest to compute permissions hash
-            let computed_perms_hash = if let Ok(content) = fs::read_to_string(&tmp_toml) {
+            let computed_perms_hash = if let Ok(content) = fs::read_to_string(&dest_toml) {
                 if let Ok(pm) = toml::from_str::<crate::ops::plugin_mgr::PluginManifest>(&content) {
                     if let Some(manifest) = pm.plugin.iter().find(|m| m.name == clean_name) {
                         Some(crate::ops::utils::calculate_permissions_hash(manifest))

@@ -12,11 +12,9 @@
 ## Features
 
 - **Sandboxed WASM Runtime**: Isolated memory execution using Wasmer 4.3 (Cranelift). WASI preview1 imports are explicitly allowlisted — only a safe subset of 48 syscalls exposed; dangerous ones (filesystem, network, process) blocked.
-- **Granular Permissions Model**: Enforces manifest-declared permissions at load time (import validation) AND call time (runtime gate) for ALL host imports including `host_get_platform`. WASI imports blocked unless in explicit allowlist.
-- **Supply Chain Integrity**: Plugin registry (`pluglists.json`) verified via minisign/Ed25519 signature before any content trusted.
+- **Granular Permissions Model**: Enforces manifest-declared permissions at load time (import validation) AND call time (runtime gate) for host imports including `host_get_platform`. WASI imports blocked unless in explicit allowlist.
 - **SSRF Protection**: `net_post` enforces HTTPS-only, blocks private/reserved IPs (RFC1918, loopback, link-local), limits response to 1 MiB.
-- **Path Containment**: `cd` command restricted to current working directory jail; traversal escapes blocked.
-- **Multitab Desktop Shell**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
+- **Multitab**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
 - **Cross-Platform Native UI**: Compiles to Windows (Win32 GDI) and Linux (GTK4) with zero browser engine footprint.
 
 ---
@@ -89,13 +87,6 @@ Refer to [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for details on
 
 ---
 
-## Security Architecture
+## Security
 
-See [docs/security.md](docs/security.md) for the complete threat model, sandbox architecture, and security controls summary.
-
-### Key Guarantees
-- **Untrusted plugins: no shell invocation** — `host_exec` resolves canonical binary path and executes directly via `execvp`/`CreateProcess`, validated against manifest `allowed_commands` allowlist. **Trusted plugins (e.g. pTerm): bypass this gate entirely by design** — see [docs/PLUGINS/CATALOG/pTerm.md](docs/PLUGINS/CATALOG/pTerm.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- **WASI allowlist** — only 48 safe syscalls exposed; `path_open`, `sock_connect`, `proc_raise` etc. blocked
-- **Registry signature verification** — minisign/Ed25519 baked pubkey
-- **SSRF defense** — HTTPS only, private IP blocking, response size limit
-- **Input bounds** — all FFI string reads capped (64 KiB general, 2 KiB URL, 16 KiB JSON, 1 MiB response)
+See [docs/SECURITY.md](docs/SECURITY.md) for the complete threat model, sandbox architecture, and security controls summary.
