@@ -6,8 +6,8 @@ use minisign_verify::PublicKey;
 use url::Url;
 
 // minisign public key for registry signature verification (baked in at build time)
-// generated with: minisign -G -p pubkey_v3.txt -s passkey_v3.txt
-const REGISTRY_PUBKEY: &str = "RWTnDb+IsjXd9GgN9pnXMUnsiDDLGocb0v5Ml4nuNbX+2mtUehNmhDml";
+// generated with: minisign -G -p pubkey_new.txt -s passkey_new.txt
+const REGISTRY_PUBKEY: &str = "RWTTjEXS7wfS6w3bNVWW5q1jTXdDb6M7ZFDK3ZCPLD9XBDBfspNDnVKQ";
 
 /// enforce HTTPS scheme for registry/WASM downloads (defense in depth)
 /// allows HTTP only for loopback addresses (127.0.0.1/localhost) for test infra
