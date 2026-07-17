@@ -131,19 +131,19 @@ static void headless_stdin_worker(void) {
     // read input from stdin line by line
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
-        
+
         // check for test state dump request magic command string
         if (line == "__dump_state__") {
             PostMessageW(g_hwnd, WM_APP + 200, 0, 0);
             continue;
         }
-        
+
         // convert the utf-8 input line to utf-16
         int n = MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, NULL, 0);
         if (n > 0) {
             std::vector<wchar_t> wline(n);
             MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, wline.data(), n);
-            
+
             // post wm_char character message to simulate key press
             for (size_t i = 0; i < wline.size() - 1; ++i) {
                 PostMessageW(g_hwnd, WM_CHAR, wline[i], 0);
@@ -152,6 +152,9 @@ static void headless_stdin_worker(void) {
             PostMessageW(g_hwnd, WM_CHAR, L'\r', 0);
         }
     }
+    // EOF reached (stdin closed) - exit gracefully
+    g_cmd_thread_running = false;
+    g_cmd_cv.notify_all();
 }
 #endif
 

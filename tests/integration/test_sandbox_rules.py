@@ -341,20 +341,31 @@ def main():
         print("\n[SANDBOX] Test Case 6: Trusted plugin bypass integrity file check...")
         shutil.rmtree(plug_dir)
         plug_dir.mkdir()
-        
+
         # determine global migration marker path
         marker_path = plug_dir.parent / ".integrity_migration_v1_done"
         if not marker_path.exists():
             with open(marker_path, "w") as f:
                 f.write("v1_done")
-                
+
         # find official wasm file from freshly built workspace plugin directory
         pterm_src = list((project_root / "plugins" / "pTerm").glob("pTerm.*"))
         pterm_wasm = [p for p in pterm_src if p.suffix not in (".hash", ".integrity", ".tmp")][0]
-        
+
         # write pterm.toml containing permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
         with open(pterm_toml_path, "w", encoding="utf-8") as f:
+            f.write("""[plugin]
+name = "pTerm"
+version = "1.0.1"
+author = "plug"
+api_version = "0.1.2a"
+permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label", "host_get_platform"]
+""")
+
+        # ALSO write unified plugin.toml manifest (required by host init_plugins)
+        unified_toml = plug_dir / "plugin.toml"
+        with open(unified_toml, "w", encoding="utf-8") as f:
             f.write("""[plugin]
 name = "pTerm"
 version = "1.0.1"
@@ -374,7 +385,7 @@ permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_
         pterm_integrity = plug_dir / "pTerm.integrity"
         if pterm_integrity.exists():
             pterm_integrity.unlink()
-            
+
         # run plug. it should load succesfully even without .integrity file
         proc = subprocess.Popen(
             [target_bin],

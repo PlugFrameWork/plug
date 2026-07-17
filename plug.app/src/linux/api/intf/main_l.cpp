@@ -69,7 +69,7 @@ static void headless_stdin_worker(void) {
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
-        
+
         if (line == "__dump_state__") {
             std::lock_guard<std::mutex> lk(g_mutex);
             std::cout << "\n---STATE_DUMP_START---\n";
@@ -105,6 +105,9 @@ static void headless_stdin_worker(void) {
             g_cmd_cv.notify_one();
         }
     }
+    // EOF reached (stdin closed) - exit gracefully
+    g_cmd_thread_running = false;
+    g_cmd_cv.notify_all();
 }
 thread_local int g_print_tab = -1;
 int g_hover_close_tab = -1;
