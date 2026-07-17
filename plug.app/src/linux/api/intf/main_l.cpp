@@ -690,9 +690,10 @@ void main_l_cleanup(void) {
     if (g_cmd_thread.joinable()) {
         g_cmd_thread.join();
     }
-    // stdin worker blocks on getline; detach so it doesn't prevent exit
+    // stdin worker blocks on getline; close stdin to unblock it, then join
     if (g_headless_stdin_thread.joinable()) {
-        g_headless_stdin_thread.detach();
+        fclose(stdin);
+        g_headless_stdin_thread.join();
     }
     if (g_app) {
         g_object_unref(g_app);
