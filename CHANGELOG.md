@@ -2,6 +2,16 @@
 
 ---
 
+## [0.1.2a] - 2026-10-08
+
+### Fixed
+* Compiler error in `main_w.cpp`: resolved duplicate switch case value `32778` (`WM_APP + 10` and `WM_APP_REQUEST_CLOSE`) by consolidating window close requests into a single canonical `WM_APP_REQUEST_CLOSE` handler.
+* Headless stdin worker exit deadlock: replaced blocking `fclose(stdin); thread.join();` in `main_w.cpp` and `main_l.cpp` cleanup routines with `g_headless_stdin_thread.detach()`, eliminating application freezes on shutdown when stdin is held open by external parent processes.
+* Headless stdin EOF termination: updated `headless_stdin_worker` in `main_w.cpp` and `main_l.cpp` to explicitly dispatch close requests (`WM_APP_REQUEST_CLOSE` via `PostMessageW` on Windows, `main_l_request_close()` on Linux) when stdin reaches EOF, preventing headless processes from hanging indefinitely in UI message loops.
+* Test suite manifest format & trusted binary selection (`test_sandbox_rules.py`): updated Test Case 6 to select canonical `pTerm` WASM matching compile-time trust hash (`9ada6ad...`) and corrected unified manifest `plugin.toml` format to array-of-tables `[[plugin]]`.
+
+---
+
 ## [0.1.2a] - 2026-07-13
 
 ### Security

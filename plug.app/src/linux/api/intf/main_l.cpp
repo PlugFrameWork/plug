@@ -106,8 +106,7 @@ static void headless_stdin_worker(void) {
         }
     }
     // EOF reached (stdin closed) - exit gracefully
-    g_cmd_thread_running = false;
-    g_cmd_cv.notify_all();
+    main_l_request_close();
 }
 thread_local int g_print_tab = -1;
 int g_hover_close_tab = -1;
@@ -690,10 +689,9 @@ void main_l_cleanup(void) {
     if (g_cmd_thread.joinable()) {
         g_cmd_thread.join();
     }
-    // stdin worker blocks on getline; close stdin to unblock it, then join
+    // stdin worker blocks on getline; detach so it doesn't prevent exit
     if (g_headless_stdin_thread.joinable()) {
-        fclose(stdin);
-        g_headless_stdin_thread.join();
+        g_headless_stdin_thread.detach();
     }
     if (g_app) {
         g_object_unref(g_app);

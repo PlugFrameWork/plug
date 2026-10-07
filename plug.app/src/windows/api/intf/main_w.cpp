@@ -153,8 +153,9 @@ static void headless_stdin_worker(void) {
         }
     }
     // EOF reached (stdin closed) - exit gracefully
-    g_cmd_thread_running = false;
-    g_cmd_cv.notify_all();
+    if (g_hwnd) {
+        PostMessageW(g_hwnd, WM_APP_REQUEST_CLOSE, 0, 0);
+    }
 }
 #endif
 
@@ -633,11 +634,6 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         std::cout << "---STATE_DUMP_END---\n" << std::endl;
         return 0;
     }
-    case WM_APP_REQUEST_CLOSE: { // WM_APP_REQUEST_CLOSE
-        g_running_ui = false;
-        DestroyWindow(hwnd);
-        return 0;
-    }
 #endif
     case WM_APP + 100: {
         std::lock_guard<std::mutex> lk(g_mutex);
@@ -753,9 +749,9 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     }
-    case WM_APP + 10: {
+    case WM_APP_REQUEST_CLOSE: {
         g_running_ui = false;
-        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        DestroyWindow(hwnd);
         return 0;
     }
     case WM_NCHITTEST: {
@@ -1206,14 +1202,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         caret_cleanup();
         PostQuitMessage(0);
         break;
-#ifdef PLUG_ENABLE_HEADLESS_MODE
-    case WM_APP_REQUEST_CLOSE:
-        if (g_hwnd) {
-            g_running_ui = false;
-            DestroyWindow(g_hwnd);
-        }
-        break;
-#endif
+
     default:
         return DefWindowProc(hwnd, msg, wParam, lParam);
     }
@@ -1299,9 +1288,7 @@ extern "C" void main_w_cleanup(void) {
 
 #ifdef PLUG_ENABLE_HEADLESS_MODE
     if (g_headless_stdin_thread.joinable()) {
-        // Close stdin to unblock getline() in headless_stdin_worker
-        fclose(stdin);
-        g_headless_stdin_thread.join();
+        g_headless_stdin_thread.detach();
     }
 #endif
 }

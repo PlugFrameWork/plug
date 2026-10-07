@@ -348,9 +348,13 @@ def main():
             with open(marker_path, "w") as f:
                 f.write("v1_done")
 
-        # find official wasm file from freshly built workspace plugin directory
-        pterm_src = list((project_root / "plugins" / "pTerm").glob("pTerm.*"))
-        pterm_wasm = [p for p in pterm_src if p.suffix not in (".hash", ".integrity", ".tmp")][0]
+        # find official wasm file matching hardcoded trust hash
+        canonical_wasm = project_root / "plugins" / "pTerm" / "pTerm.9ada6ad5b1026e126bfc212364d1ad9876c0d280b6477498d8a2220e99091f14"
+        if canonical_wasm.exists():
+            pterm_wasm = canonical_wasm
+        else:
+            pterm_src = [p for p in (project_root / "plugins" / "pTerm").glob("pTerm*") if p.is_file() and p.suffix not in (".hash", ".integrity", ".tmp")]
+            pterm_wasm = pterm_src[0]
 
         # write pterm.toml containing permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_label"]
         pterm_toml_path = plug_dir / "pTerm.toml"
@@ -366,7 +370,7 @@ permissions = ["host_exec", "host_add_tab", "host_set_tab_owner", "host_get_tab_
         # ALSO write unified plugin.toml manifest (required by host init_plugins)
         unified_toml = plug_dir / "plugin.toml"
         with open(unified_toml, "w", encoding="utf-8") as f:
-            f.write("""[plugin]
+            f.write("""[[plugin]]
 name = "pTerm"
 version = "1.0.1"
 author = "plug"
