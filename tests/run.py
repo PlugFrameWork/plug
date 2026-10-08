@@ -311,7 +311,12 @@ def main():
     wasm_dest_dir.mkdir(parents=True, exist_ok=True)
     
     # compile each mock plugin
-    plugins_to_build = ["ok_plugin", "rogue_plugin", "rogue_plugin_runtime"]
+    plugins_to_build = [
+        "ok_plugin", "rogue_plugin", "rogue_plugin_runtime",
+        "fs_scoped_ok_plugin", "fs_scoped_escape_plugin", "fs_scoped_no_perm_plugin",
+        "fs_isolated_a", "fs_scoped_unauthorized_import_plugin",
+        "fs_isolated_b"
+    ]
     for p in plugins_to_build:
         src = mock_plugins_dir / f"{p}.rs"
         manifest = manifests_dir / f"{p}.toml"
@@ -329,7 +334,8 @@ def main():
     integration_tests = [
         project_root / "tests" / "integration" / "test_ffi_boundary.py",
         project_root / "tests" / "integration" / "test_sandbox_rules.py",
-        project_root / "tests" / "integration" / "test_rust_ffi_direct.py"
+        project_root / "tests" / "integration" / "test_rust_ffi_direct.py",
+        project_root / "tests" / "integration" / "test_scoped_fs.py"
     ]
     
     e2e_tests = [

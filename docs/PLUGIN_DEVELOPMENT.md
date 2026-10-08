@@ -45,7 +45,8 @@ permissions = [
   "host_get_tab_label",  # Reading active tab label
   "host_get_platform",   # Detecting host OS (0=Windows, 1=Linux)
   "get_env",             # Reading host environment variables
-  "net_post"             # HTTP POST requests (HTTPS only, no private IPs)
+  "net_post",            # HTTP POST requests (HTTPS only, no private IPs)
+  "fs_scoped"            # Scoped filesystem capability (preopened /data storage)
 ]
 ```
 
@@ -94,6 +95,8 @@ allowed_commands = [
 - Response capped at 1 MiB
 - 30 second timeout
 
-### Filesystem
+### Filesystem (`fs_scoped`)
 - `cd` command restricted to current working directory jail
-- No direct filesystem WASI access exposed to plugins
+- With `fs_scoped` permission, plugins access persistent sandbox storage via the preopened `/data` capability descriptor
+- Strict capability boundary: path traversals (`..`), rooted paths, symlink creation, and symlink escapes outside `/data` return `ENOTCAPABLE` (76)
+- Without `fs_scoped`, zero filesystem preopens are provisioned and `path_*` WASI imports are rejected at load time

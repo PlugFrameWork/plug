@@ -30,7 +30,8 @@
 
 **WASI namespace** (`wasi_snapshot_preview1.*`):
 - **Explicit allowlist only** (see `plugin_mgr.rs:ALLOWED_WASI`)
-- Blocked: `path_open`, `path_readlink`, `path_rename`, `path_unlink_file`, `path_create_directory`, `path_remove_directory`, `path_symlink`, `path_link`, `sock_connect`, `sock_bind`, `sock_listen`, `sock_accept`, `proc_raise`, `random_get` (stubbed), etc.
+- Capability-Gated (`fs_scoped` manifest permission required): `path_open`, `path_create_directory`, `path_remove_directory`, `path_unlink_file`, `path_readlink`, `path_filestat_get`, `path_filestat_set_times`, `path_rename`
+- Blocked / Denied: Arbitrary `path_symlink`, `path_link`, `sock_connect`, `sock_bind`, `sock_listen`, `sock_accept`, `proc_raise`, `random_get` (stubbed), etc.
 - Allowed: `fd_write`/`fd_read` (stdout/stderr only), `proc_exit`, `clock_time_get`, `args_*`, `environ_*` (stubs), `poll_oneoff`, `sched_yield`, `sock_*` (stubs returning ENOSYS)
 
 ### 3. Runtime Gates (Call Time)
@@ -55,9 +56,23 @@ if !env_data.permissions.iter().any(|p| p == "host_exec") {
 - Response size limit: 1 MiB
 - Timeout: 30s (configurable via `DEFAULT_TIMEOUT`)
 
-### 6. Filesystem Containment
+### 6. Filesystem Containment & Scoped Sandbox
 - `cd` command: `canonicalize()` + prefix check against process CWD
-- No WASI `path_*` functions exposed
+- WASI Scoped Filesystem Sandbox (`fs_scoped`):
+  - Scoped Filesystem Capability: **ENFORCED** (mapped to isolated `/data` virtual descriptor per plugin).
+  - Preopen Directory Policy (Plug Invariant): In Plug's sandbox model, exactly one preopened directory descriptor mapped to virtual path `/data` is provisioned per plugin. (Note: while WASI Preview 1 permits arbitrary preopen sets, restricting to exactly one isolated `/data` preopen is a deliberate Plug security invariant for zero-trust storage isolation).
+  - Capability Isolation: **ENFORCED**. Each plugin maps `/data` to an opaque host path (`~/.plug/data/<plugin_hash>/`). Cross-plugin sibling traversals (`../sibling`) are strictly denied at the capability boundary.
+  - Traversal Containment: **ENFORCED**. Lexical lookup strictly rejects rooted paths (`/`, `\`, drive syntax) and ascending traversals (`..`) exceeding the capability root, returning `ENOTCAPABLE` (76).
+  - Unauthorized Import / Permission Gate: **ENFORCED**. Plugins without `fs_scoped` receive zero preopen capabilities (`EBADF`) and any `path_*` imports are rejected at load time.
+  - Surface Minimization: **ENFORCED**. Non-essential filesystem primitives (`path_symlink`, `path_readlink`, `path_rename`, `path_filestat_*`) are locked down as fail-closed stubs returning `ENOTCAPABLE` (76). Operational surface restricted strictly to CRUD on regular files/directories.
+  - Post-Open Object Verification: **ENFORCED**. File handles opened via `path_open` are interrogated at the kernel level (`GetFinalPathNameByHandleW` on Windows, `/proc/self/fd/` on Linux) to verify that the backing file object strictly resides within the capability root. Reparse points on opened handles trigger immediate descriptor revocation (`drop`) and return `ENOTCAPABLE` (76).
+  - Pre-Verification Destructive Side Effects: **MITIGATED**. Truncation (`O_TRUNC`) is deferred exclusively to verified handles via `file.set_len(0)` — preventing premature truncation of out-of-boundary host files during namespace races. Foreign deletion logic is completely purged (zero foreign deletion on escape detection).
+  - Final-Object Reparse Dereference Inhibition: **ENFORCED**. Windows open passes `FILE_FLAG_OPEN_REPARSE_POINT` (0x00200000) to inhibit kernel reparse dereferencing for the target object during `CreateFileW`; Linux open enforces `O_NOFOLLOW | O_CLOEXEC`.
+  - Intermediate Reparse Containment: **RESIDUAL RISK**. On Windows and POSIX without atomic descriptor lookup, concurrent mutation of intermediate path directories between component check and open remains a theoretical host namespace race.
+  - Atomic Kernel-Level Path Containment: **P1.5 ENGINEERING FOLLOW-UP (PENDING)**.
+    - Linux target architecture: `openat2(dirfd, relative_path, { RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS })` with kernel-enforced `EAGAIN` race backoff.
+    - Windows target architecture: Handle-relative directory walking/pinning or native NT directory-relative primitives to eliminate intermediate reparse hopping.
+    - Concurrent namespace race fuzzing test suite (verifying host file preservation during continuous race swapping).
 - Plugin working directory tracked per-tab (`TAB_CWDS`)
 
 ### 7. Supply Chain Integrity
@@ -85,6 +100,7 @@ if !env_data.permissions.iter().any(|p| p == "host_exec") {
 | Registry key rotation | Not implemented; requires binary rebuild | Medium |
 | Side-channel via `host_get_platform` | Now permission-gated | Low |
 | TOCTOU in `write_atomic` cross-FS | Same-FS check + randomized temp name | Low |
+| Intermediate namespace race (pre-P1.5) | Reparse inhibit + post-open handle verification + deferred truncate | Low-Medium (mitigated against destruction; full atomic containment targeted in P1.5) |
 | Malicious plugin DoS (infinite loop) | No fuel metering / epoch interruption | Medium |
 | Memory exhaustion via large allocations | `MAX_FFI_STRING_LEN` bounds; Wasmer memory limit not set | Medium |
 

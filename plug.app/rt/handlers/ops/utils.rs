@@ -24,6 +24,27 @@ pub fn get_plugins_dir() -> Option<PathBuf> {
     Some(sys_path)
 }
 
+
+pub fn get_data_dir() -> Option<PathBuf> {
+    let mut sys_path = PathBuf::new();
+    if cfg!(windows) {
+        let mut sys_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+        if sys_drive.ends_with(':') {
+            sys_drive.push('\\');
+        }
+        sys_path.push(sys_drive);
+        sys_path.push(".plug");
+    } else if let Ok(home) = std::env::var("HOME") {
+        sys_path.push(home);
+        sys_path.push(".plug");
+    }
+    if sys_path.as_os_str().is_empty() {
+        return None;
+    }
+    sys_path.push("data");
+    Some(sys_path)
+}
+
 pub fn to_c_string(input: &str) -> CString {
     let sanitized: String = input.chars().filter(|&c| c != '\0').collect();
     CString::new(sanitized).unwrap_or_else(|_| CString::new("").unwrap())

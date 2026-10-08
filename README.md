@@ -11,8 +11,8 @@
 
 ## Features
 
-- **Sandboxed WASM Runtime**: Isolated memory execution using Wasmer 4.3 (Cranelift). WASI preview1 imports are explicitly allowlisted — only a safe subset of 48 syscalls exposed; dangerous ones (filesystem, network, process) blocked.
-- **Granular Permissions Model**: Enforces manifest-declared permissions at load time (import validation) AND call time (runtime gate) for host imports including `host_get_platform`. WASI imports blocked unless in explicit allowlist.
+- **Sandboxed WASM Runtime**: Isolated memory execution using Wasmer 4.3 (Cranelift). WASI preview1 imports are strictly gated — capability-based scoped filesystem (`/data`) confined to opaque isolated per-plugin storage under manifest permission; arbitrary host access blocked.
+- **Granular Permissions Model**: Enforces manifest-declared permissions at load time (import validation) AND call time (runtime gate) for host imports including `host_get_platform` and scoped filesystem capability (`fs_scoped`).
 - **SSRF Protection**: `net_post` enforces HTTPS-only, blocks private/reserved IPs (RFC1918, loopback, link-local), limits response to 1 MiB.
 - **Multitab**: Launch and run multiple independent plugins concurrently in separate workspace tabs.
 - **Cross-Platform Native UI**: Compiles to Windows (Win32 GDI) and Linux (GTK4) with zero browser engine footprint.

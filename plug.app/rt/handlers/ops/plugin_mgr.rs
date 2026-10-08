@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use wasmer::{Instance, Module, Store, Function, imports, Memory, FunctionEnv, FunctionEnvMut};
 use wasmer_compiler_cranelift::Cranelift;
 use std::path::{Path, PathBuf};
@@ -113,11 +114,21 @@ pub struct Plugin {
     instance: Instance,
 }
 
+
+#[allow(dead_code)]
+enum FdEntry {
+    PreopenDir { path: PathBuf },
+    File { file: fs::File, path: PathBuf },
+    Dir { path: PathBuf },
+}
+
 struct Env {
     memory: Option<Memory>,
     permissions: Vec<String>,
     allowed_commands: Vec<AllowedCommand>,
     is_trusted: bool,
+    scoped_dir: Option<PathBuf>,
+    fd_table: Arc<Mutex<HashMap<i32, FdEntry>>>,
 }
 
 static PLUGINS: Lazy<Mutex<Vec<Plugin>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -311,6 +322,170 @@ pub fn init_plugins(plugins_dir: &str) {
     }
 }
 
+
+// normalize path for capability boundary compare
+fn normalize_for_comparison(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy().to_lowercase();
+        let stripped = if let Some(rest) = s.strip_prefix(r"\\?\\") {
+            rest
+        } else {
+            &s
+        };
+        PathBuf::from(stripped.replace('/', "\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
+}
+
+// check if path is symlink or reparse point (junction / mount point)
+fn is_reparse_or_symlink(path: &Path) -> bool {
+    if path.is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if let Ok(meta) = path.symlink_metadata() {
+            if meta.file_attributes() & 0x400 != 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// retrieve canonical path from open file handle via kernel
+fn get_file_canonical_path(file: &fs::File) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use std::os::windows::ffi::OsStringExt;
+        extern "system" {
+            fn GetFinalPathNameByHandleW(
+                h_file: *mut std::ffi::c_void,
+                file_path: *mut u16,
+                max_path_len: u32,
+                flags: u32,
+            ) -> u32;
+        }
+        let handle = file.as_raw_handle();
+        let mut buf = vec![0u16; 1024];
+        let len = unsafe {
+            GetFinalPathNameByHandleW(
+                handle as *mut _,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                0,
+            )
+        };
+        if len == 0 || len >= buf.len() as u32 {
+            return None;
+        }
+        let os_str = std::ffi::OsString::from_wide(&buf[..len as usize]);
+        Some(PathBuf::from(os_str))
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = file.as_raw_fd();
+        std::fs::read_link(format!("/proc/self/fd/{}", fd)).ok()
+    }
+}
+
+// capability-based path resolution rooted at capability base_dir
+// enforces wasi capability boundary: path must not escape base_dir
+fn resolve_capability_path(base_dir: &Path, raw_path: &str, follow_symlinks: bool) -> Result<PathBuf, i32> {
+    // 1. directory-relative capability lookup rejects rooted paths
+    // guest path must be resolved relative to directory handle capability
+    if raw_path.starts_with('/') || raw_path.starts_with('\\') || raw_path.contains(':') {
+        return Err(76); // ENOTCAPABLE
+    }
+
+    let canonical_root = match base_dir.canonicalize() {
+        Ok(c) => c,
+        Err(_) => return Err(44), // ENOENT
+    };
+    let norm_root = normalize_for_comparison(&canonical_root);
+
+    let mut current = canonical_root.clone();
+
+    // 2. iterate path components relative to directory capability handle
+    for comp in raw_path.split(|c| c == '/' || c == '\\') {
+        if comp.is_empty() || comp == "." {
+            continue;
+        }
+        if comp == ".." {
+            let norm_curr = normalize_for_comparison(&current);
+            if norm_curr == norm_root {
+                // capability boundary exceeded: cannot traverse above preopen root
+                return Err(76); // ENOTCAPABLE
+            }
+            if !current.pop() {
+                return Err(76); // ENOTCAPABLE
+            }
+            let norm_popped = normalize_for_comparison(&current);
+            if !norm_popped.starts_with(&norm_root) {
+                return Err(76); // ENOTCAPABLE
+            }
+            continue;
+        }
+
+        current.push(comp);
+
+        // 3. check symlink / junction boundary during traversal
+        if is_reparse_or_symlink(&current) {
+            if !follow_symlinks {
+                return Err(76); // ENOTCAPABLE
+            }
+            let target = match current.canonicalize() {
+                Ok(t) => t,
+                Err(_) => return Err(44),
+            };
+            let norm_target = normalize_for_comparison(&target);
+            if !norm_target.starts_with(&norm_root) {
+                // symlink target escapes capability root
+                return Err(76); // ENOTCAPABLE
+            }
+            current = target;
+        }
+    }
+
+    // 4. final capability boundary verification
+    if current.exists() {
+        let canon = match current.canonicalize() {
+            Ok(c) => c,
+            Err(_) => return Err(44),
+        };
+        let norm_canon = normalize_for_comparison(&canon);
+        if !norm_canon.starts_with(&norm_root) {
+            return Err(76); // ENOTCAPABLE
+        }
+        Ok(canon)
+    } else {
+        // path does not exist yet (e.g. O_CREAT)
+        // ensure its parent exists and is within capability root
+        if let Some(parent) = current.parent() {
+            if parent.exists() {
+                let canon_parent = match parent.canonicalize() {
+                    Ok(cp) => cp,
+                    Err(_) => return Err(44),
+                };
+                let norm_parent = normalize_for_comparison(&canon_parent);
+                if !norm_parent.starts_with(&norm_root) {
+                    return Err(76); // ENOTCAPABLE
+                }
+            } else {
+                return Err(44);
+            }
+        }
+        Ok(current)
+    }
+}
+
 fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), Box<dyn std::error::Error>> {
     let wasm_bytes = fs::read(wasm_path)?;
     let sha256_hex = crate::ops::utils::calculate_buffer_sha256(&wasm_bytes);
@@ -378,14 +553,22 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             }
         } else if import.module() == "wasi_snapshot_preview1" {
             // SECURITY: wasi_snapshot_preview1 imports MUST be explicitly allowed
-            // only a safe subset of WASI preview1 is exposed; dangerous syscalls are blocked
-            // path_* and sock_* are NOT allowed - plugins must use host FFI with permissions
-            // proc_raise, random_get are NOT allowed - they provide dangerous capabilities
             let name = import.name();
+            const SCOPED_FS_WASI: &[&str] = &[
+                "path_open",
+                "path_create_directory",
+                "path_remove_directory",
+                "path_unlink_file",
+                "path_readlink",
+                "path_symlink",
+                "path_filestat_get",
+                "path_filestat_set_times",
+                "path_rename",
+            ];
             const ALLOWED_WASI: &[&str] = &[
                 // process / exit
                 "proc_exit",
-                // file descriptor ops (stdin/stdout/stderr only)
+                // file descriptor ops
                 "fd_write", "fd_read", "fd_close", "fd_seek", "fd_fdstat_get",
                 "fd_fdstat_set_flags", "fd_fdstat_set_rights", "fd_prestat_get",
                 "fd_prestat_dir_name", "fd_advise", "fd_allocate", "fd_datasync",
@@ -398,17 +581,37 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
                 // poll / sched (stubs returning ENOSYS)
                 "poll_oneoff", "sched_yield",
             ];
-            if !ALLOWED_WASI.contains(&name) {
+            if SCOPED_FS_WASI.contains(&name) {
+                if !manifest.permissions.contains(&"fs_scoped".to_string()) {
+                    return Err(format!("[SECURITY] Unauthorized WASI import: {}", name).into());
+                }
+            } else if !ALLOWED_WASI.contains(&name) {
                 return Err(format!("[SECURITY] Unauthorized WASI import: {}", name).into());
             }
         }
     }
+
+    let has_fs_scoped = manifest.permissions.contains(&"fs_scoped".to_string());
+    let (scoped_dir, fd_table) = if has_fs_scoped {
+        let dir = crate::ops::utils::get_data_dir()
+            .unwrap_or_else(|| PathBuf::from(".plug").join("data"))
+            .join(hash);
+        let _ = fs::create_dir_all(&dir);
+        let mut map = HashMap::new();
+        // preopen capability directory mapped at fd 3
+        map.insert(3, FdEntry::PreopenDir { path: dir.clone() });
+        (Some(dir), Arc::new(Mutex::new(map)))
+    } else {
+        (None, Arc::new(Mutex::new(HashMap::new())))
+    };
 
     let env = FunctionEnv::new(&mut store, Env { 
         memory: None, 
         permissions: manifest.permissions.clone(),
         allowed_commands: manifest.allowed_commands.clone().unwrap_or_default(),
         is_trusted,
+        scoped_dir,
+        fd_table,
     });
 
     let import_object = imports! {
@@ -745,42 +948,476 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             "proc_exit" => Function::new_typed(&mut store, |_: i32| {}),
             "fd_write" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, iovs_ptr: i32, iovs_len: i32, nwritten: i32| -> i32 {
                 let (env_data, store) = env.data_and_store_mut();
-                if fd != 1 && fd != 2 { return 0; }
-                if let Some(memory) = &env_data.memory {
-                    let view = memory.view(&store);
-                    let mut total_written = 0;
-                    for i in 0..iovs_len {
-                        let mut iov_buf = [0u8; 8];
-                        if view.read((iovs_ptr + i * 8) as u64, &mut iov_buf).is_ok() {
-                            let ptr = u32::from_le_bytes(iov_buf[0..4].try_into().unwrap()) as u64;
-                            let len = u32::from_le_bytes(iov_buf[4..8].try_into().unwrap()) as usize;
-                            let mut str_buf = vec![0u8; len];
-                            if view.read(ptr, &mut str_buf).is_ok() {
-                                let s = String::from_utf8_lossy(&str_buf);
-                                let cleaned = s.trim_end_matches(|c| c == '\n' || c == '\r');
-                                if !cleaned.is_empty() {
-                                    if fd == 1 { print_info(cleaned); } else { print_error(cleaned); }
+                if fd == 1 || fd == 2 {
+                    if let Some(memory) = &env_data.memory {
+                        let view = memory.view(&store);
+                        let mut total_written = 0;
+                        for i in 0..iovs_len {
+                            let mut iov_buf = [0u8; 8];
+                            if view.read((iovs_ptr + i * 8) as u64, &mut iov_buf).is_ok() {
+                                let ptr = u32::from_le_bytes(iov_buf[0..4].try_into().unwrap()) as u64;
+                                let len = u32::from_le_bytes(iov_buf[4..8].try_into().unwrap()) as usize;
+                                let mut str_buf = vec![0u8; len];
+                                if view.read(ptr, &mut str_buf).is_ok() {
+                                    let s = String::from_utf8_lossy(&str_buf);
+                                    let cleaned = s.trim_end_matches(|c| c == '\n' || c == '\r');
+                                    if !cleaned.is_empty() {
+                                        if fd == 1 { print_info(cleaned); } else { print_error(cleaned); }
+                                    }
+                                    total_written += len as i32;
                                 }
-                                total_written += len as i32;
                             }
                         }
+                        let _ = view.write(nwritten as u64, &total_written.to_le_bytes());
                     }
-                    let _ = view.write(nwritten as u64, &total_written.to_le_bytes());
+                    return 0;
                 }
-                0
+                // file descriptor write
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::File { file, .. }) = table.get_mut(&fd) {
+                        use std::io::Write;
+                        let mut total_written = 0usize;
+                        for i in 0..iovs_len {
+                            let mut iov_buf = [0u8; 8];
+                            if view.read((iovs_ptr + i * 8) as u64, &mut iov_buf).is_ok() {
+                                let ptr = u32::from_le_bytes(iov_buf[0..4].try_into().unwrap()) as u64;
+                                let len = u32::from_le_bytes(iov_buf[4..8].try_into().unwrap()) as usize;
+                                let mut data = vec![0u8; len];
+                                if view.read(ptr, &mut data).is_ok() {
+                                    if file.write_all(&data).is_ok() {
+                                        total_written += len;
+                                    } else {
+                                        return 5; // EIO
+                                    }
+                                }
+                            }
+                        }
+                        let _ = view.write(nwritten as u64, &(total_written as u32).to_le_bytes());
+                        return 0;
+                    }
+                }
+                8 // EBADF
             }),
-            "fd_read" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32| -> i32 { 0 }),
-            "fd_close" => Function::new_typed(&mut store, |_: i32| -> i32 { 0 }),
-            "fd_seek" => Function::new_typed(&mut store, |_: i32, _: i64, _: i32, _: i32| -> i32 { 0 }),
+            "fd_read" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, iovs_ptr: i32, iovs_len: i32, nread: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::File { file, .. }) = table.get_mut(&fd) {
+                        use std::io::Read;
+                        let mut total_read = 0usize;
+                        for i in 0..iovs_len {
+                            let mut iov_buf = [0u8; 8];
+                            if view.read((iovs_ptr + i * 8) as u64, &mut iov_buf).is_ok() {
+                                let ptr = u32::from_le_bytes(iov_buf[0..4].try_into().unwrap()) as u64;
+                                let len = u32::from_le_bytes(iov_buf[4..8].try_into().unwrap()) as usize;
+                                let mut data = vec![0u8; len];
+                                match file.read(&mut data) {
+                                    Ok(n) => {
+                                        if view.write(ptr, &data[..n]).is_ok() {
+                                            total_read += n;
+                                        }
+                                        if n < len { break; }
+                                    }
+                                    Err(_) => return 5,
+                                }
+                            }
+                        }
+                        let _ = view.write(nread as u64, &(total_read as u32).to_le_bytes());
+                        return 0;
+                    }
+                }
+                8 // EBADF
+            }),
+            "fd_close" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32| -> i32 {
+                let (env_data, _) = env.data_and_store_mut();
+                let mut table = env_data.fd_table.lock().unwrap();
+                if let Some(FdEntry::PreopenDir { .. }) = table.get(&fd) {
+                    return 76; // ENOTCAPABLE
+                }
+                if table.remove(&fd).is_some() {
+                    0
+                } else {
+                    8
+                }
+            }),
+            "fd_seek" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, offset: i64, whence: i32, newoffset_ptr: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::File { file, .. }) = table.get_mut(&fd) {
+                        use std::io::Seek;
+                        let seek_from = match whence {
+                            0 => std::io::SeekFrom::Start(offset as u64),
+                            1 => std::io::SeekFrom::Current(offset),
+                            2 => std::io::SeekFrom::End(offset),
+                            _ => return 28, // EINVAL
+                        };
+                        match file.seek(seek_from) {
+                            Ok(pos) => {
+                                let _ = view.write(newoffset_ptr as u64, &(pos as u64).to_le_bytes());
+                                return 0;
+                            }
+                            Err(_) => return 28,
+                        }
+                    }
+                }
+                8
+            }),
             "fd_fdstat_get" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 0 }),
             "fd_fdstat_set_flags" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 0 }),
             "fd_fdstat_set_rights" => Function::new_typed(&mut store, |_: i32, _: i64, _: i64| -> i32 { 0 }),
-            "fd_prestat_get" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 8 }),
-            "fd_prestat_dir_name" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32| -> i32 { 8 }),
+            "fd_prestat_get" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, prestat_ptr: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_some() {
+                    let table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::PreopenDir { .. }) = table.get(&fd) {
+                        if let Some(memory) = &env_data.memory {
+                            let view = memory.view(&store);
+                            let mut buf = [0u8; 8];
+                            buf[0] = 0; // dir tag
+                            let name_len = 5u32; // "/data"
+                            buf[4..8].copy_from_slice(&name_len.to_le_bytes());
+                            if view.write(prestat_ptr as u64, &buf).is_ok() {
+                                return 0;
+                            }
+                        }
+                    }
+                }
+                8 // EBADF
+            }),
+            "fd_prestat_dir_name" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, path_ptr: i32, path_len: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_some() {
+                    let table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::PreopenDir { .. }) = table.get(&fd) {
+                        if let Some(memory) = &env_data.memory {
+                            let view = memory.view(&store);
+                            let name = b"/data";
+                            let to_write = std::cmp::min(path_len as usize, name.len());
+                            if view.write(path_ptr as u64, &name[..to_write]).is_ok() {
+                                return 0;
+                            }
+                        }
+                    }
+                }
+                8 // EBADF
+            }),
+            "path_open" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, dirfd: i32, dirflags: i32, path_ptr: i32, path_len: i32, oflags: i32, _fs_rights_base: i64, _fs_rights_inheriting: i64, _fdflags: i32, opened_fd_ptr: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_none() {
+                    return 76; // ENOTCAPABLE
+                }
+                let base_dir = {
+                    let table = env_data.fd_table.lock().unwrap();
+                    match table.get(&dirfd) {
+                        Some(FdEntry::PreopenDir { path }) | Some(FdEntry::Dir { path }) => path.clone(),
+                        _ => return 8, // EBADF
+                    }
+                };
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut path_bytes = vec![0u8; path_len as usize];
+                    if view.read(path_ptr as u64, &mut path_bytes).is_err() {
+                        return 28; // EINVAL
+                    }
+                    let raw_path = match std::str::from_utf8(&path_bytes) {
+                        Ok(s) => s,
+                        Err(_) => return 28,
+                    };
+
+                    let follow_symlinks = (dirflags & 1) != 0;
+                    let target_path = match resolve_capability_path(&base_dir, raw_path, follow_symlinks) {
+                        Ok(p) => p,
+                        Err(errno) => return errno,
+                    };
+
+                    if oflags & 2 != 0 {
+                        // O_DIRECTORY
+                        if target_path.is_dir() {
+                            let canon_dir = match target_path.canonicalize() {
+                                Ok(c) => c,
+                                Err(_) => return 44,
+                            };
+                            let norm_dir = normalize_for_comparison(&canon_dir);
+                            let norm_root = match base_dir.canonicalize() {
+                                Ok(c) => normalize_for_comparison(&c),
+                                Err(_) => return 44,
+                            };
+                            if !norm_dir.starts_with(&norm_root) {
+                                return 76; // ENOTCAPABLE
+                            }
+                            let mut table = env_data.fd_table.lock().unwrap();
+                            let mut next_fd = 4;
+                            while table.contains_key(&next_fd) {
+                                next_fd += 1;
+                            }
+                            table.insert(next_fd, FdEntry::Dir { path: target_path });
+                            let _ = view.write(opened_fd_ptr as u64, &(next_fd as u32).to_le_bytes());
+                            return 0;
+                        } else {
+                            return 44; // ENOENT
+                        }
+                    }
+                    let mut opts = fs::OpenOptions::new();
+                    opts.read(true);
+                    if oflags & 1 != 0 {
+                        // O_CREAT
+                        opts.write(true);
+                        opts.create(true);
+                    } else {
+                        opts.write(true);
+                    }
+                    // deferred truncate: never truncate before handle verification
+                    // prevents host file corruption on namespace race
+
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::fs::OpenOptionsExt;
+                        // FILE_FLAG_OPEN_REPARSE_POINT (0x00200000)
+                        // prevents kernel CreateFileW from following reparse points / symlinks
+                        opts.custom_flags(0x00200000);
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::OpenOptionsExt;
+                        if !follow_symlinks {
+                            opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+                        }
+                    }
+
+                    match opts.open(&target_path) {
+                        Ok(file) => {
+                            // post-open kernel handle verification
+                            let norm_root = match base_dir.canonicalize() {
+                                Ok(c) => normalize_for_comparison(&c),
+                                Err(_) => return 44,
+                            };
+                            if let Some(opened_path) = get_file_canonical_path(&file) {
+                                let norm_opened = normalize_for_comparison(&opened_path);
+                                if !norm_opened.starts_with(&norm_root) {
+                                    drop(file);
+                                    // fail-closed: never touch or delete out-of-boundary objects
+                                    return 76; // ENOTCAPABLE
+                                }
+                            } else {
+                                drop(file);
+                                return 76;
+                            }
+
+                            // reject reparse points (symlinks, junctions) on opened handle
+                            #[cfg(windows)]
+                            {
+                                use std::os::windows::fs::MetadataExt;
+                                if let Ok(meta) = file.metadata() {
+                                    if meta.file_attributes() & 0x400 != 0 {
+                                        drop(file);
+                                        return 76; // ENOTCAPABLE
+                                    }
+                                }
+                            }
+                            #[cfg(not(windows))]
+                            {
+                                if !follow_symlinks {
+                                    if let Ok(meta) = target_path.symlink_metadata() {
+                                        if meta.file_type().is_symlink() {
+                                            drop(file);
+                                            return 76; // ENOTCAPABLE
+                                        }
+                                    }
+                                }
+                            }
+
+                            // deferred atomic truncate: executed strictly on verified handle
+                            if oflags & 8 != 0 {
+                                if file.set_len(0).is_err() {
+                                    drop(file);
+                                    return 5; // EIO
+                                }
+                            }
+
+                            let mut table = env_data.fd_table.lock().unwrap();
+                            let mut next_fd = 4;
+                            while table.contains_key(&next_fd) {
+                                next_fd += 1;
+                            }
+                            table.insert(next_fd, FdEntry::File { file, path: target_path });
+                            let _ = view.write(opened_fd_ptr as u64, &(next_fd as u32).to_le_bytes());
+                            0
+                        }
+                        Err(e) => match e.kind() {
+                            std::io::ErrorKind::NotFound => 44, // ENOENT
+                            std::io::ErrorKind::PermissionDenied => 2, // EACCES
+                            std::io::ErrorKind::AlreadyExists => 20, // EEXIST
+                            _ => 28, // EINVAL
+                        },
+                    }
+                } else {
+                    28
+                }
+            }),
+            "path_create_directory" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, dirfd: i32, path_ptr: i32, path_len: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_none() { return 76; }
+                let base_dir = {
+                    let table = env_data.fd_table.lock().unwrap();
+                    match table.get(&dirfd) {
+                        Some(FdEntry::PreopenDir { path }) | Some(FdEntry::Dir { path }) => path.clone(),
+                        _ => return 8,
+                    }
+                };
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut path_bytes = vec![0u8; path_len as usize];
+                    if view.read(path_ptr as u64, &mut path_bytes).is_err() { return 28; }
+                    let raw_path = match std::str::from_utf8(&path_bytes) {
+                        Ok(s) => s,
+                        Err(_) => return 28,
+                    };
+                    let target_path = match resolve_capability_path(&base_dir, raw_path, false) {
+                        Ok(p) => p,
+                        Err(errno) => return errno,
+                    };
+                    let res = if target_path.exists() {
+                        0
+                    } else if std::fs::create_dir(&target_path).is_ok() {
+                        0
+                    } else {
+                        28
+                    };
+                    if res == 0 {
+                        let norm_root = match base_dir.canonicalize() {
+                            Ok(c) => normalize_for_comparison(&c),
+                            Err(_) => return 44,
+                        };
+                        if let Ok(canon) = target_path.canonicalize() {
+                            let norm_canon = normalize_for_comparison(&canon);
+                            if !norm_canon.starts_with(&norm_root) {
+                                // fail-closed: do not remove foreign directory
+                                return 76;
+                            }
+                            0
+                        } else {
+                            28
+                        }
+                    } else {
+                        res
+                    }
+                } else {
+                    28
+                }
+            }),
+            "path_remove_directory" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, dirfd: i32, path_ptr: i32, path_len: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_none() { return 76; }
+                let base_dir = {
+                    let table = env_data.fd_table.lock().unwrap();
+                    match table.get(&dirfd) {
+                        Some(FdEntry::PreopenDir { path }) | Some(FdEntry::Dir { path }) => path.clone(),
+                        _ => return 8,
+                    }
+                };
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut path_bytes = vec![0u8; path_len as usize];
+                    if view.read(path_ptr as u64, &mut path_bytes).is_err() { return 28; }
+                    let raw_path = match std::str::from_utf8(&path_bytes) {
+                        Ok(s) => s,
+                        Err(_) => return 28,
+                    };
+                    let target_path = match resolve_capability_path(&base_dir, raw_path, false) {
+                        Ok(p) => p,
+                        Err(errno) => return errno,
+                    };
+                    let norm_root = match base_dir.canonicalize() {
+                        Ok(c) => normalize_for_comparison(&c),
+                        Err(_) => return 44,
+                    };
+                    let canon = match target_path.canonicalize() {
+                        Ok(c) => c,
+                        Err(_) => return 44,
+                    };
+                    let norm_canon = normalize_for_comparison(&canon);
+                    if !norm_canon.starts_with(&norm_root) || norm_canon == norm_root {
+                        return 76;
+                    }
+                    if std::fs::remove_dir(&target_path).is_ok() { 0 } else { 44 }
+                } else {
+                    28
+                }
+            }),
+            "path_unlink_file" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, dirfd: i32, path_ptr: i32, path_len: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if env_data.scoped_dir.is_none() { return 76; }
+                let base_dir = {
+                    let table = env_data.fd_table.lock().unwrap();
+                    match table.get(&dirfd) {
+                        Some(FdEntry::PreopenDir { path }) | Some(FdEntry::Dir { path }) => path.clone(),
+                        _ => return 8,
+                    }
+                };
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut path_bytes = vec![0u8; path_len as usize];
+                    if view.read(path_ptr as u64, &mut path_bytes).is_err() { return 28; }
+                    let raw_path = match std::str::from_utf8(&path_bytes) {
+                        Ok(s) => s,
+                        Err(_) => return 28,
+                    };
+                    let target_path = match resolve_capability_path(&base_dir, raw_path, false) {
+                        Ok(p) => p,
+                        Err(errno) => return errno,
+                    };
+                    let norm_root = match base_dir.canonicalize() {
+                        Ok(c) => normalize_for_comparison(&c),
+                        Err(_) => return 44,
+                    };
+                    let canon = match target_path.canonicalize() {
+                        Ok(c) => c,
+                        Err(_) => return 44,
+                    };
+                    let norm_canon = normalize_for_comparison(&canon);
+                    if !norm_canon.starts_with(&norm_root) || norm_canon == norm_root {
+                        return 76;
+                    }
+                    if std::fs::remove_file(&target_path).is_ok() { 0 } else { 44 }
+                } else {
+                    28
+                }
+            }),
+            "path_readlink" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { 76 }),
+            "path_symlink" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { 76 }),
+            "path_filestat_get" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { 76 }),
+            "path_filestat_set_times" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32, _: i64, _: i64, _: i32| -> i32 { 76 }),
+            "path_rename" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { 76 }),
             "fd_advise" => Function::new_typed(&mut store, |_: i32, _: i64, _: i64, _: i32| -> i32 { 0 }),
             "fd_allocate" => Function::new_typed(&mut store, |_: i32, _: i64, _: i64| -> i32 { 0 }),
             "fd_datasync" => Function::new_typed(&mut store, |_: i32| -> i32 { 0 }),
-            "fd_filestat_get" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 0 }),
+            "fd_filestat_get" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, buf_ptr: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let table = env_data.fd_table.lock().unwrap();
+                    if let Some(entry) = table.get(&fd) {
+                        let metadata = match entry {
+                            FdEntry::File { file, .. } => file.metadata().ok(),
+                            FdEntry::PreopenDir { path } | FdEntry::Dir { path } => std::fs::metadata(path).ok(),
+                        };
+                        if let Some(meta) = metadata {
+                            let mut buf = [0u8; 64];
+                            let filetype: u8 = if meta.is_dir() { 4 } else { 3 };
+                            buf[16] = filetype;
+                            buf[32..40].copy_from_slice(&meta.len().to_le_bytes());
+                            let _ = view.write(buf_ptr as u64, &buf);
+                            return 0;
+                        }
+                    }
+                }
+                8
+            }),
             "fd_filestat_set_size" => Function::new_typed(&mut store, |_: i32, _: i64| -> i32 { 0 }),
             "fd_filestat_set_times" => Function::new_typed(&mut store, |_: i32, _: i64, _: i64, _: i32| -> i32 { 0 }),
             "fd_pread" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i64, _: i32| -> i32 { 0 }),
@@ -788,7 +1425,21 @@ fn load_plugin(wasm_path: &Path, manifest: &Manifest, hash: &str) -> Result<(), 
             "fd_readdir" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i64, _: i32| -> i32 { 0 }),
             "fd_renumber" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 0 }),
             "fd_sync" => Function::new_typed(&mut store, |_: i32| -> i32 { 0 }),
-            "fd_tell" => Function::new_typed(&mut store, |_: i32, _: i32| -> i32 { 0 }),
+            "fd_tell" => Function::new_typed_with_env(&mut store, &env, |mut env: FunctionEnvMut<Env>, fd: i32, offset_ptr: i32| -> i32 {
+                let (env_data, store) = env.data_and_store_mut();
+                if let Some(memory) = &env_data.memory {
+                    let view = memory.view(&store);
+                    let mut table = env_data.fd_table.lock().unwrap();
+                    if let Some(FdEntry::File { file, .. }) = table.get_mut(&fd) {
+                        use std::io::Seek;
+                        if let Ok(pos) = file.stream_position() {
+                            let _ = view.write(offset_ptr as u64, &(pos as u64).to_le_bytes());
+                            return 0;
+                        }
+                    }
+                }
+                8
+            }),
             "poll_oneoff" => Function::new_typed(&mut store, |_: i32, _: i32, _: i32, _: i32| -> i32 { 0 }),
             "sched_yield" => Function::new_typed(&mut store, || -> i32 { 0 }),
         }
