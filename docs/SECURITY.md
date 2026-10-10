@@ -66,12 +66,13 @@ if !env_data.permissions.iter().any(|p| p == "host_exec") {
   - Unauthorized Import / Permission Gate: **ENFORCED**. Plugins without `fs_scoped` receive zero preopen capabilities (`EBADF`) and any `path_*` imports are rejected at load time.
   - Surface Minimization: **ENFORCED**. Non-essential filesystem primitives (`path_symlink`, `path_readlink`, `path_rename`, `path_filestat_*`) are locked down as fail-closed stubs returning `ENOTCAPABLE` (76). Operational surface restricted strictly to CRUD on regular files/directories.
   - Post-Open Object Verification: **ENFORCED**. File handles opened via `path_open` are interrogated at the kernel level (`GetFinalPathNameByHandleW` on Windows, `/proc/self/fd/` on Linux) to verify that the backing file object strictly resides within the capability root. Reparse points on opened handles trigger immediate descriptor revocation (`drop`) and return `ENOTCAPABLE` (76).
-  - Pre-Verification Destructive Side Effects: **MITIGATED**. Truncation (`O_TRUNC`) is deferred exclusively to verified handles via `file.set_len(0)` — preventing premature truncation of out-of-boundary host files during namespace races. Foreign deletion logic is completely purged (zero foreign deletion on escape detection).
+  - Pre-Verification Truncation Side Effects: **ELIMINATED**. Truncation (`O_TRUNC`) is deferred exclusively to verified handles via `file.set_len(0)` — eliminating premature truncation of out-of-boundary host files during namespace races.
+  - Foreign Deletion Elimination: **ENFORCED**. Foreign deletion logic is completely purged — escape detection drops descriptors fail-closed with zero host modification or deletion.
   - Final-Object Reparse Dereference Inhibition: **ENFORCED**. Windows open passes `FILE_FLAG_OPEN_REPARSE_POINT` (0x00200000) to inhibit kernel reparse dereferencing for the target object during `CreateFileW`; Linux open enforces `O_NOFOLLOW | O_CLOEXEC`.
-  - Intermediate Reparse Containment: **RESIDUAL RISK**. On Windows and POSIX without atomic descriptor lookup, concurrent mutation of intermediate path directories between component check and open remains a theoretical host namespace race.
-  - Atomic Kernel-Level Path Containment: **P1.5 ENGINEERING FOLLOW-UP (PENDING)**.
-    - Linux target architecture: `openat2(dirfd, relative_path, { RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS })` with kernel-enforced `EAGAIN` race backoff.
-    - Windows target architecture: Handle-relative directory walking/pinning or native NT directory-relative primitives to eliminate intermediate reparse hopping.
+  - Path Mutation Namespace Races: **RESIDUAL RISK (P1.5 Atomic Containment Target)**. Pathname-based mutating operations (`path_create_directory`, `path_unlink_file`, `path_remove_directory`, and `O_CREAT` race window) rely on multi-pass lexical inspection + post-action validation. Without descriptor-relative atomic kernel primitives, concurrent namespace mutation between check and operation remains a theoretical host race.
+  - Atomic Kernel-Level Path Containment: **P1.5 ENGINEERING ROADMAP (PENDING)**.
+    - Linux target architecture: `openat2(dirfd, relative_path, { RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS })` with kernel-enforced `EAGAIN` race backoff. Directory mutations via descriptor-relative `*at()` syscalls (`mkdirat`, `unlinkat`).
+    - Windows target architecture: Handle-relative directory walking/pinning (`NtOpenFile` with `RootDirectory` or recursive verified handle binding) to eliminate intermediate reparse hopping.
     - Concurrent namespace race fuzzing test suite (verifying host file preservation during continuous race swapping).
 - Plugin working directory tracked per-tab (`TAB_CWDS`)
 
